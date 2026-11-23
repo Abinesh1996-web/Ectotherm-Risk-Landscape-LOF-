@@ -16,6 +16,7 @@ import {
   Mountain,
   Grid,
   RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -29,25 +30,100 @@ import {
   Legend,
 } from 'recharts';
 
-// Pre-loaded spatial observations across the 10x10 habitat grid for an immediate rich landscape
-const DEFAULT_OBSERVATIONS = [
+type ModelType = 'additive' | 'multiplicative';
+
+interface Observation {
+  id: string;
+  x: number;
+  y: number;
+  te: number;
+  refuge: number;
+  predator: number;
+}
+
+interface SpeciesPreset {
+  label: string;
+  scientific: string;
+  tPref: number;
+  ctMin: number;
+  ctMax: number;
+  vulnerability: number;
+}
+
+interface RiskStatus {
+  zone: 'safe' | 'moderate' | 'lethal';
+  label: string;
+  badgeClass: string;
+  cellClass: string;
+  textClass: string;
+  topColor: string;
+  leftColor: string;
+  rightColor: string;
+}
+
+interface GridEntry {
+  obs: Observation;
+  score: number;
+  status: RiskStatus;
+}
+
+const SPECIES_PRESETS: SpeciesPreset[] = [
+  {
+    label: 'Western Fence Lizard (Profile A)',
+    scientific: 'Sceloporus occidentalis',
+    tPref: 34.5,
+    ctMin: 24.0,
+    ctMax: 45.0,
+    vulnerability: 0.7,
+  },
+  {
+    label: 'Viviparous Lizard (Profile B)',
+    scientific: 'Zootoca vivipara',
+    tPref: 32.3,
+    ctMin: 18.0,
+    ctMax: 41.0,
+    vulnerability: 0.4,
+  },
+  {
+    label: 'Desert Iguana',
+    scientific: 'Dipsosaurus dorsalis',
+    tPref: 38.5,
+    ctMin: 25.0,
+    ctMax: 47.0,
+    vulnerability: 0.6,
+  },
+  {
+    label: 'Green Tree Frog',
+    scientific: 'Hyla cinerea',
+    tPref: 26.0,
+    ctMin: 14.0,
+    ctMax: 36.0,
+    vulnerability: 0.55,
+  },
+];
+
+const DEFAULT_OBSERVATIONS: Observation[] = [
   { id: '1', x: 2, y: 2, te: 34.0, refuge: 0.95, predator: 0.05 },
-  { id: '2', x: 3, y: 3, te: 33.5, refuge: 0.85, predator: 0.10 },
-  { id: '3', x: 2, y: 8, te: 34.5, refuge: 0.90, predator: 0.10 },
-  { id: '4', x: 4, y: 7, te: 26.5, refuge: 0.45, predator: 0.70 },
-  { id: '5', x: 5, y: 5, te: 41.0, refuge: 0.20, predator: 0.65 },
+  { id: '2', x: 3, y: 3, te: 33.5, refuge: 0.85, predator: 0.1 },
+  { id: '3', x: 2, y: 8, te: 34.5, refuge: 0.9, predator: 0.1 },
+  { id: '4', x: 4, y: 7, te: 26.5, refuge: 0.45, predator: 0.7 },
+  { id: '5', x: 5, y: 5, te: 41.0, refuge: 0.2, predator: 0.65 },
   { id: '6', x: 6, y: 4, te: 38.5, refuge: 0.35, predator: 0.55 },
-  { id: '7', x: 7, y: 8, te: 28.0, refuge: 0.30, predator: 0.80 },
-  { id: '8', x: 8, y: 2, te: 34.0, refuge: 0.90, predator: 0.10 },
-  { id: '9', x: 9, y: 9, te: 35.0, refuge: 0.10, predator: 0.90 },
+  { id: '7', x: 7, y: 8, te: 28.0, refuge: 0.3, predator: 0.8 },
+  { id: '8', x: 8, y: 2, te: 34.0, refuge: 0.9, predator: 0.1 },
+  { id: '9', x: 9, y: 9, te: 35.0, refuge: 0.1, predator: 0.9 },
   { id: '10', x: 8, y: 6, te: 25.0, refuge: 0.25, predator: 0.85 },
 ];
 
 /**
  * Asymmetric Thermal Performance Curve (0 to 1)
- * Bounded by species-specific CT_min, T_pref, and CT_max
  */
-function calculatePerformance(te, tPref, ctMin, ctMax) {
+function calculatePerformance(
+  te: number,
+  tPref: number,
+  ctMin: number,
+  ctMax: number
+): number {
   if (te <= ctMin || te >= ctMax) return 0;
   if (te <= tPref) {
     const ratio = (te - ctMin) / Math.max(0.1, tPref - ctMin);
@@ -59,31 +135,41 @@ function calculatePerformance(te, tPref, ctMin, ctMax) {
 }
 
 /**
- * Composite Landscape of Fear (LOF) Score (0 to 1)
- * Compares Additive (Linear) vs. Thermal-Gated Multiplicative models
+ * Exact Manuscript Section 2.3 Equations:
+ * Additive: 0.40*P + 0.20*R + 0.20*T + 0.20*F
+ * Multiplicative: min(1, (0.50*P + 0.25*R + 0.25*F) * exp(3 * T))
  */
-function calculateLOF(te, refuge, predator, tPref, ctMin, ctMax, vulnerability, model) {
-  const perf = calculatePerformance(te, tPref, ctMin, ctMax);
-  const thermalStress = 1 - perf;
+function calculateLOF(
+  te: number,
+  refuge: number,
+  predator: number,
+  tPref: number,
+  ctMin: number,
+  ctMax: number,
+  vulnerability: number,
+  model: ModelType
+): number {
   const scarcity = 1 - refuge;
+  const deltaTMax =
+    te <= tPref ? Math.max(0.1, tPref - ctMin) : Math.max(0.1, ctMax - tPref);
+  const thermalMismatch = Math.min(1, Math.abs(te - tPref) / deltaTMax);
 
   if (model === 'additive') {
     const raw =
-      ((thermalStress + scarcity + predator) / 3) * (0.5 + 0.5 * vulnerability) +
-      0.1 * vulnerability;
+      0.4 * predator +
+      0.2 * scarcity +
+      0.2 * thermalMismatch +
+      0.2 * vulnerability;
     return Math.max(0, Math.min(1, raw));
   } else {
-    const thermalGate = 1 / Math.max(0.15, perf);
-    const baseRisk = (0.5 * scarcity + 0.5 * predator) * vulnerability;
-    const raw = baseRisk * thermalGate + 0.25 * thermalStress;
+    const beta = 3;
+    const baseRisk = 0.5 * predator + 0.25 * scarcity + 0.25 * vulnerability;
+    const raw = baseRisk * Math.exp(beta * thermalMismatch);
     return Math.max(0, Math.min(1, raw));
   }
 }
 
-/**
- * Returns theme-aware styling & labels for Low / Moderate / High LOF risk
- */
-function getRiskStatus(score, isDark) {
+function getRiskStatus(score: number, isDark: boolean): RiskStatus {
   if (score < 0.35) {
     return {
       zone: 'safe',
@@ -127,15 +213,340 @@ function getRiskStatus(score, isDark) {
 }
 
 /**
+ * Custom Minimalist Vector Logo: Lizard + Landscape of Fear Peaks + Thermal Wave
+ */
+function LOFLogo() {
+  return (
+    <div className="w-12 h-12 rounded-2xl bg-[#06281e] border border-emerald-500/40 shadow-md flex items-center justify-center shrink-0 overflow-hidden">
+      <svg viewBox="0 0 64 64" className="w-11 h-11">
+        <defs>
+          <linearGradient id="lofWaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#10b981" />
+            <stop offset="52%" stopColor="#f59e0b" />
+            <stop offset="100%" stopColor="#f43f5e" />
+          </linearGradient>
+        </defs>
+        {/* Topographic Mountain Peaks (Landscape of Fear) */}
+        <path
+          d="M 8 44 L 22 25 L 33 37 L 45 19 L 56 44 Z"
+          fill="#0d3b2e"
+          stroke="#34d399"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        {/* Stylized Lizard Silhouette curving over peaks */}
+        <path
+          d="M 15 35 C 21 26, 30 22, 39 24 C 44 25, 48 22, 51 20"
+          fill="none"
+          stroke="#4ade80"
+          strokeWidth="4.2"
+          strokeLinecap="round"
+        />
+        {/* Lizard Head & Legs */}
+        <circle cx="52" cy="19.5" r="3" fill="#4ade80" />
+        <path
+          d="M 27 25 L 24 31 M 37 24 L 39 30 M 15 35 C 12 37, 10 35, 11 32"
+          fill="none"
+          stroke="#4ade80"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+        />
+        {/* Thermal Risk Wave at Base */}
+        <path
+          d="M 8 51 Q 20 44, 32 51 T 56 51"
+          fill="none"
+          stroke="url(#lofWaveGrad)"
+          strokeWidth="3.2"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * Interactive Live Habitat Diorama (Makes LOF & Thermoregulation intuitive for students & youth)
+ */
+function HabitatVisualizer({
+  te,
+  tPref,
+  ctMin,
+  ctMax,
+  refuge,
+  predator,
+  lofScore,
+  species,
+  isDark,
+}: {
+  te: number;
+  tPref: number;
+  ctMin: number;
+  ctMax: number;
+  refuge: number;
+  predator: number;
+  lofScore: number;
+  species: string;
+  isDark: boolean;
+}) {
+  const isCold = te < tPref - 4.5;
+  const isHot = te > tPref + 4.5;
+  const isExtreme = te <= ctMin + 1 || te >= ctMax - 1;
+
+  // Dynamic sky gradient based on temperature
+  const skyTop = isCold ? '#0284c7' : isHot ? '#dc2626' : '#0ea5e9';
+  const skyBottom = isCold ? '#bae6fd' : isHot ? '#fed7aa' : '#fef3c7';
+
+  // Dynamic lizard body color & status caption
+  const lizardColor = isCold ? '#38bdf8' : isHot ? '#f43f5e' : '#10b981';
+  const thermalMood = isExtreme
+    ? 'Lethal Thermal Stress!'
+    : isCold
+    ? 'Cold & Sluggish (Slow Escape)'
+    : isHot
+    ? 'Overheating (Heat Stress)'
+    : 'Optimal Thermal Zone (Fast Escape)';
+
+  // Dynamic hawk position (swoops lower as predator probability increases)
+  const hawkY = 54 - predator * 24;
+  const hawkScale = 0.65 + predator * 0.65;
+
+  // Sun size grows with temperature
+  const sunRadius = 11 + Math.max(0, Math.min(14, (te - 10) * 0.35));
+
+  return (
+    <div
+      className={`border rounded-2xl p-4 space-y-3 overflow-hidden ${
+        isDark ? 'bg-slate-900/75 border-slate-800' : 'bg-white border-slate-200/90 shadow-sm'
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div
+          className={`flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider ${
+            isDark ? 'text-white' : 'text-slate-900'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-500" />
+          Live Microhabitat Scene
+        </div>
+        <span
+          className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+            isExtreme || lofScore >= 0.65
+              ? 'bg-rose-500/15 text-rose-500'
+              : isCold || isHot || lofScore >= 0.35
+              ? 'bg-amber-500/15 text-amber-600'
+              : 'bg-emerald-500/15 text-emerald-600'
+          }`}
+        >
+          {thermalMood}
+        </span>
+      </div>
+
+      <div className="rounded-xl overflow-hidden border border-slate-200/50 dark:border-slate-800">
+        <svg viewBox="0 0 560 170" className="w-full h-auto block select-none">
+          <defs>
+            <linearGradient id="habSky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={skyTop} stopOpacity={isDark ? 0.65 : 0.85} />
+              <stop offset="100%" stopColor={skyBottom} stopOpacity={isDark ? 0.35 : 0.95} />
+            </linearGradient>
+            <linearGradient id="habGround" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={isHot ? '#d97706' : isCold ? '#64748b' : '#65a30d'} />
+              <stop offset="100%" stopColor={isHot ? '#92400e' : isCold ? '#334155' : '#3f6212'} />
+            </linearGradient>
+          </defs>
+
+          {/* Sky */}
+          <rect x="0" y="0" width="560" height="170" fill="url(#habSky)" />
+
+          {/* Sun / Thermal Source */}
+          <g style={{ transition: 'all 0.3s ease' }}>
+            <circle
+              cx="65"
+              cy="40"
+              r={sunRadius + 8}
+              fill={isHot ? '#ef4444' : '#fde047'}
+              opacity="0.28"
+            />
+            <circle
+              cx="65"
+              cy="40"
+              r={sunRadius}
+              fill={isHot ? '#f97316' : isCold ? '#e0f2fe' : '#facc15'}
+            />
+            <text
+              x="65"
+              y="44"
+              textAnchor="middle"
+              fontSize="9"
+              fontWeight="800"
+              fill={isCold ? '#0369a1' : '#7c2d12'}
+            >
+              {te.toFixed(0)}°C
+            </text>
+          </g>
+
+          {/* Distant Landscape Mountains */}
+          <path
+            d="M 0 122 L 85 78 L 160 112 L 250 68 L 350 115 L 445 72 L 560 118 L 560 170 L 0 170 Z"
+            fill={isDark ? '#1e293b' : '#475569'}
+            opacity="0.32"
+          />
+
+          {/* Ground Terrain */}
+          <path d="M 0 120 Q 140 108, 280 120 T 560 116 L 560 170 L 0 170 Z" fill="url(#habGround)" />
+
+          {/* Dynamic Refuge: Rocks & Bushes scale with refuge availability */}
+          {refuge > 0.08 && (
+            <g opacity={Math.min(1, 0.3 + refuge * 0.8)}>
+              {/* Left Rock Shelter */}
+              <ellipse
+                cx="145"
+                cy="128"
+                rx={20 + refuge * 24}
+                ry={10 + refuge * 12}
+                fill="#475569"
+              />
+              <ellipse
+                cx="165"
+                cy="132"
+                rx={14 + refuge * 18}
+                ry={8 + refuge * 9}
+                fill="#64748b"
+              />
+              {/* Left Bush */}
+              <circle cx="110" cy="122" r={10 + refuge * 16} fill="#15803d" />
+              <circle cx="128" cy="118" r={8 + refuge * 14} fill="#16a34a" />
+            </g>
+          )}
+
+          {refuge > 0.45 && (
+            <g opacity={Math.min(1, (refuge - 0.3) * 1.4)}>
+              {/* Right Bush & Cover */}
+              <circle cx="435" cy="120" r={10 + refuge * 15} fill="#15803d" />
+              <circle cx="458" cy="124" r={9 + refuge * 13} fill="#22c55e" />
+              <ellipse cx="410" cy="133" rx={18 + refuge * 14} ry={9 + refuge * 7} fill="#475569" />
+            </g>
+          )}
+
+          {/* Dynamic Predator (Hawk Silhouette + Threat Radar) */}
+          {predator > 0.05 && (
+            <g
+              transform={`translate(390, ${hawkY}) scale(${hawkScale})`}
+              opacity={Math.min(1, 0.25 + predator * 0.85)}
+              style={{ transition: 'all 0.35s ease' }}
+            >
+              {/* Threat Radar Ring */}
+              <circle
+                cx="0"
+                cy="0"
+                r={18 + predator * 14}
+                fill="#f43f5e"
+                opacity={predator * 0.22}
+              />
+              {/* Hawk Wings Silhouette */}
+              <path
+                d="M -28 4 Q -14 -14, 0 -2 Q 14 -14, 28 4 Q 14 -4, 0 4 Q -14 -4, -28 4 Z"
+                fill="#0f172a"
+              />
+              <circle cx="0" cy="-2" r="3" fill="#f43f5e" />
+            </g>
+          )}
+
+          {/* Danger Alert Ring around Lizard when LOF is High */}
+          {lofScore >= 0.65 && (
+            <ellipse
+              cx="275"
+              cy="132"
+              rx="48"
+              ry="14"
+              fill="none"
+              stroke="#f43f5e"
+              strokeWidth="2.5"
+              strokeDasharray="5 4"
+            />
+          )}
+
+          {/* Stylized Ectotherm (Lizard) in Center */}
+          <g transform="translate(275, 130)">
+            {/* Shadow */}
+            <ellipse cx="0" cy="9" rx="34" ry="5" fill="#000000" opacity="0.25" />
+            {/* Tail */}
+            <path
+              d="M -22 2 C -38 4, -48 -4, -56 -1"
+              fill="none"
+              stroke={lizardColor}
+              strokeWidth="4.5"
+              strokeLinecap="round"
+            />
+            {/* Body */}
+            <ellipse cx="-2" cy="0" rx="22" ry="7.5" fill={lizardColor} />
+            {/* Head */}
+            <ellipse cx="22" cy="-2" rx="9" ry="6" fill={lizardColor} />
+            <circle cx="25" cy="-3.5" r="1.8" fill="#0f172a" />
+            <circle cx="25.6" cy="-4" r="0.6" fill="#ffffff" />
+            {/* Legs */}
+            <path
+              d="M -12 5 L -17 12 M 10 5 L 15 12 M -8 -4 L -12 -10 M 11 -4 L 15 -9"
+              stroke={lizardColor}
+              strokeWidth="3.2"
+              strokeLinecap="round"
+            />
+            {/* Cold Shiver Lines */}
+            {isCold && (
+              <path
+                d="M -18 -14 Q -15 -18, -12 -14 M 4 -15 Q 7 -19, 10 -15"
+                fill="none"
+                stroke="#e0f2fe"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            )}
+            {/* Overheating Wavy Lines */}
+            {isHot && (
+              <path
+                d="M -10 -14 Q -13 -19, -10 -24 M 4 -14 Q 1 -19, 4 -24 M 18 -14 Q 15 -19, 18 -24"
+                fill="none"
+                stroke="#fef08a"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            )}
+          </g>
+
+          {/* Subtle Bottom Legend inside Scene */}
+          <text
+            x="14"
+            y="160"
+            fontSize="10"
+            fontWeight="700"
+            fill="#ffffff"
+            opacity="0.9"
+          >
+            {species} • Refuge: {Math.round(refuge * 100)}% • Predator Threat:{' '}
+            {Math.round(predator * 100)}%
+          </text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Custom SVG Speedometer Gauge for the Composite LOF Score
  */
-function LOFGaugeMeter({ score, status, isDark }) {
+function LOFGaugeMeter({
+  score,
+  status,
+  isDark,
+}: {
+  score: number;
+  status: RiskStatus;
+  isDark: boolean;
+}) {
   const cx = 160;
   const cy = 145;
   const r = 108;
 
-  // Helper to convert a 0..1 score to an (x, y) point on the upper semi-circle
-  const polarPoint = (val, radius = r) => {
+  const polarPoint = (val: number, radius = r) => {
     const angle = Math.PI * (1 - val);
     return {
       x: cx + radius * Math.cos(angle),
@@ -143,8 +554,7 @@ function LOFGaugeMeter({ score, status, isDark }) {
     };
   };
 
-  // Helper to build an SVG arc path between two 0..1 values
-  const arcPath = (startVal, endVal, radius = r) => {
+  const arcPath = (startVal: number, endVal: number, radius = r) => {
     const start = polarPoint(startVal, radius);
     const end = polarPoint(endVal, radius);
     return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius} ${radius} 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
@@ -155,10 +565,8 @@ function LOFGaugeMeter({ score, status, isDark }) {
 
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-      {/* SVG Semi-Circular Gauge */}
-      <div className="w-full max-w-[300px] shrink-0">
+      <div className="w-full max-w-[290px] shrink-0">
         <svg viewBox="0 0 320 175" className="w-full h-auto overflow-visible">
-          {/* Subtle background track */}
           <path
             d={arcPath(0, 1)}
             fill="none"
@@ -166,8 +574,6 @@ function LOFGaugeMeter({ score, status, isDark }) {
             strokeWidth="22"
             strokeLinecap="round"
           />
-
-          {/* Three Colored Risk Arcs */}
           <path
             d={arcPath(0, 0.345)}
             fill="none"
@@ -190,7 +596,6 @@ function LOFGaugeMeter({ score, status, isDark }) {
             strokeLinecap="butt"
           />
 
-          {/* Tick Marks & Labels */}
           {ticks.map((t) => {
             const inner = polarPoint(t, r - 15);
             const outer = polarPoint(t, r + 15);
@@ -219,7 +624,6 @@ function LOFGaugeMeter({ score, status, isDark }) {
             );
           })}
 
-          {/* Animated Needle */}
           <g
             style={{
               transform: `rotate(${needleRotation}deg)`,
@@ -233,7 +637,6 @@ function LOFGaugeMeter({ score, status, isDark }) {
             />
           </g>
 
-          {/* Center Pivot Hub */}
           <circle
             cx={cx}
             cy={cy}
@@ -245,7 +648,6 @@ function LOFGaugeMeter({ score, status, isDark }) {
         </svg>
       </div>
 
-      {/* Numeric Score & Status Badge */}
       <div className="flex-1 flex flex-col items-center sm:items-end text-center sm:text-right space-y-3">
         <div>
           <div
@@ -276,22 +678,36 @@ function LOFGaugeMeter({ score, status, isDark }) {
 /**
  * Interactive 3D Isometric Terrain Plot for the 10x10 Landscape of Fear
  */
-function IsometricLandscape({ gridMap, isDark }) {
-  const [hoveredCell, setHoveredCell] = useState(null);
+function IsometricLandscape({
+  gridMap,
+  isDark,
+}: {
+  gridMap: Map<string, GridEntry>;
+  isDark: boolean;
+}) {
+  const [hoveredCell, setHoveredCell] = useState<{
+    x: number;
+    y: number;
+    entry?: GridEntry;
+  } | null>(null);
 
-  // Isometric projection constants
-  const tw = 22; // tile half-width
-  const th = 11; // tile half-height
-  const ox = 260; // horizontal origin
-  const oy = 115; // vertical origin (leaves headroom for tall peaks)
-  const maxH = 88; // maximum peak height in px
+  const tw = 22;
+  const th = 11;
+  const ox = 260;
+  const oy = 115;
+  const maxH = 88;
 
-  // Build cells in painter's algorithm order (back to front: increasing gx + gy)
-  const cells = [];
+  const cells: Array<{
+    gx: number;
+    gy: number;
+    x: number;
+    y: number;
+    entry?: GridEntry;
+  }> = [];
   for (let gx = 0; gx < 10; gx++) {
     for (let gy = 0; gy < 10; gy++) {
       const x = gx + 1;
-      const y = 10 - gy; // Y=10 at back, Y=1 at front
+      const y = 10 - gy;
       const entry = gridMap.get(`${x},${y}`);
       cells.push({ gx, gy, x, y, entry });
     }
@@ -299,7 +715,6 @@ function IsometricLandscape({ gridMap, isDark }) {
 
   return (
     <div className="relative w-full">
-      {/* Floating Hover Tooltip */}
       {hoveredCell ? (
         <div
           className={`mb-3 px-4 py-2.5 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-2 transition ${
@@ -336,20 +751,18 @@ function IsometricLandscape({ gridMap, isDark }) {
         </div>
       )}
 
-      {/* Isometric SVG Canvas */}
       <div
         className={`rounded-xl border p-2 overflow-hidden ${
           isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50/80 border-slate-200'
         }`}
       >
         <svg viewBox="0 0 520 355" className="w-full h-auto select-none">
-          {/* Axis Labels */}
           <text
             x="85"
             y="285"
             fontSize="11"
             fontWeight="700"
-            fill={isDark ? '#64748b' : '#64748b'}
+            fill="#64748b"
             transform="rotate(26, 85, 285)"
           >
             Y-AXIS (10 → 1)
@@ -359,7 +772,7 @@ function IsometricLandscape({ gridMap, isDark }) {
             y="305"
             fontSize="11"
             fontWeight="700"
-            fill={isDark ? '#64748b' : '#64748b'}
+            fill="#64748b"
             transform="rotate(-26, 385, 305)"
           >
             X-AXIS (1 → 10)
@@ -369,34 +782,31 @@ function IsometricLandscape({ gridMap, isDark }) {
             const bx = ox + (gx - gy) * tw;
             const by = oy + (gx + gy) * th;
             const hasData = Boolean(entry);
-            const score = hasData ? entry.score : 0;
+            const score = entry ? entry.score : 0;
             const h = hasData ? Math.max(10, score * maxH) : 3;
             const isHovered = hoveredCell && hoveredCell.x === x && hoveredCell.y === y;
 
-            // Colors for 3D shaded faces
-            const topColor = hasData
+            const topColor = entry
               ? entry.status.topColor
               : isDark
               ? '#1e293b'
               : '#e2e8f0';
-            const leftColor = hasData
+            const leftColor = entry
               ? entry.status.leftColor
               : isDark
               ? '#0f172a'
               : '#cbd5e1';
-            const rightColor = hasData
+            const rightColor = entry
               ? entry.status.rightColor
               : isDark
               ? '#020617'
               : '#94a3b8';
 
-            // Top diamond vertices (shifted up by h)
             const tTop = `${bx},${by - th - h}`;
             const tRight = `${bx + tw},${by - h}`;
             const tBottom = `${bx},${by + th - h}`;
             const tLeft = `${bx - tw},${by - h}`;
 
-            // Base vertices
             const bRight = `${bx + tw},${by}`;
             const bBottom = `${bx},${by + th}`;
             const bLeft = `${bx - tw},${by}`;
@@ -407,32 +817,26 @@ function IsometricLandscape({ gridMap, isDark }) {
                 onMouseEnter={() => setHoveredCell({ x, y, entry })}
                 onMouseLeave={() => setHoveredCell(null)}
                 className="cursor-pointer"
-                style={{
-                  opacity: hoveredCell && !isHovered && hasData ? 0.85 : 1,
-                }}
+                style={{ opacity: hoveredCell && !isHovered && hasData ? 0.85 : 1 }}
               >
-                {/* Left Shaded Face */}
                 <polygon
                   points={`${tLeft} ${tBottom} ${bBottom} ${bLeft}`}
                   fill={leftColor}
                   stroke={isHovered ? '#ffffff' : isDark ? '#0f172a' : '#ffffff'}
                   strokeWidth={isHovered ? 1.5 : 0.6}
                 />
-                {/* Right Shaded Face */}
                 <polygon
                   points={`${tRight} ${tBottom} ${bBottom} ${bRight}`}
                   fill={rightColor}
                   stroke={isHovered ? '#ffffff' : isDark ? '#0f172a' : '#ffffff'}
                   strokeWidth={isHovered ? 1.5 : 0.6}
                 />
-                {/* Top Diamond Face */}
                 <polygon
                   points={`${tTop} ${tRight} ${tBottom} ${tLeft}`}
                   fill={topColor}
                   stroke={isHovered ? '#ffffff' : isDark ? '#0f172a' : '#ffffff'}
                   strokeWidth={isHovered ? 1.8 : 0.6}
                 />
-                {/* Score Label on top of active peaks */}
                 {hasData && (
                   <text
                     x={bx}
@@ -441,7 +845,7 @@ function IsometricLandscape({ gridMap, isDark }) {
                     fontSize="8.5"
                     fontWeight="800"
                     fill="#ffffff"
-                    style={{ pointerEvents: 'none', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}
+                    style={{ pointerEvents: 'none' }}
                   >
                     {score.toFixed(1)}
                   </text>
@@ -456,7 +860,6 @@ function IsometricLandscape({ gridMap, isDark }) {
 }
 
 export default function App() {
-  // Theme state (defaulting to clean, vibrant Light Dashboard mode)
   const [isDark, setIsDark] = useState(false);
 
   // Global species & model settings
@@ -465,26 +868,33 @@ export default function App() {
   const [ctMin, setCtMin] = useState(24.0);
   const [ctMax, setCtMax] = useState(45.0);
   const [vulnerability, setVulnerability] = useState(0.7);
-  const [model, setModel] = useState('additive');
-  const [activeTab, setActiveTab] = useState('calculator');
+  const [model, setModel] = useState<ModelType>('additive');
+  const [activeTab, setActiveTab] = useState<'calculator' | 'mapping'>('calculator');
 
-  // Tab 1: Point Calculator state
+  // Point Calculator state
   const [te, setTe] = useState(30.0);
   const [refuge, setRefuge] = useState(0.4);
   const [predator, setPredator] = useState(0.3);
 
-  // Tab 2: Field Data & Mapping state
-  const [observations, setObservations] = useState(DEFAULT_OBSERVATIONS);
-  const [spatialView, setSpatialView] = useState('3d'); // '3d' | '2d'
+  // Field Data & Mapping state
+  const [observations, setObservations] = useState<Observation[]>(DEFAULT_OBSERVATIONS);
+  const [spatialView, setSpatialView] = useState<'3d' | '2d'>('3d');
   const [newX, setNewX] = useState('1');
   const [newY, setNewY] = useState('1');
   const [newTe, setNewTe] = useState('34.5');
   const [newRefuge, setNewRefuge] = useState('0.5');
   const [newPredator, setNewPredator] = useState('0.5');
   const [importMessage, setImportMessage] = useState('');
-  const fileInputRef = useRef(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Computed LOF score and status for Point Calculator
+  const applyPreset = (preset: SpeciesPreset) => {
+    setSpecies(preset.scientific);
+    setTPref(preset.tPref);
+    setCtMin(preset.ctMin);
+    setCtMax(preset.ctMax);
+    setVulnerability(preset.vulnerability);
+  };
+
   const currentLOF = useMemo(
     () => calculateLOF(te, refuge, predator, tPref, ctMin, ctMax, vulnerability, model),
     [te, refuge, predator, tPref, ctMin, ctMax, vulnerability, model]
@@ -494,41 +904,36 @@ export default function App() {
     calculatePerformance(te, tPref, ctMin, ctMax) * 100
   );
 
-  // Overlapping "Mountain-Like" Area Chart dataset across temperature
   const mountainData = useMemo(() => {
     const start = Math.max(0, Math.floor(ctMin - 5));
     const end = Math.min(60, Math.ceil(ctMax + 5));
     const points = [];
     for (let temp = start; temp <= end; temp += 1) {
-      const perf = Math.round(calculatePerformance(temp, tPref, ctMin, ctMax) * 100);
-      const addRisk = Math.round(
-        calculateLOF(temp, refuge, predator, tPref, ctMin, ctMax, vulnerability, 'additive') *
-          100
-      );
-      const multRisk = Math.round(
-        calculateLOF(
-          temp,
-          refuge,
-          predator,
-          tPref,
-          ctMin,
-          ctMax,
-          vulnerability,
-          'multiplicative'
-        ) * 100
-      );
       points.push({
         temp,
-        performance: perf,
-        additiveRisk: addRisk,
-        multiplicativeRisk: multRisk,
+        performance: Math.round(calculatePerformance(temp, tPref, ctMin, ctMax) * 100),
+        additiveRisk: Math.round(
+          calculateLOF(temp, refuge, predator, tPref, ctMin, ctMax, vulnerability, 'additive') *
+            100
+        ),
+        multiplicativeRisk: Math.round(
+          calculateLOF(
+            temp,
+            refuge,
+            predator,
+            tPref,
+            ctMin,
+            ctMax,
+            vulnerability,
+            'multiplicative'
+          ) * 100
+        ),
       });
     }
     return points;
   }, [tPref, ctMin, ctMax, refuge, predator, vulnerability]);
 
-  // Add manual observation
-  const handleAddObservation = (e) => {
+  const handleAddObservation = (e: React.FormEvent) => {
     e.preventDefault();
     const x = Math.max(1, Math.min(10, Math.round(Number(newX) || 1)));
     const y = Math.max(1, Math.min(10, Math.round(Number(newY) || 1)));
@@ -537,21 +942,13 @@ export default function App() {
     const predVal = Math.max(0, Math.min(1, Number(newPredator) || 0));
 
     setObservations((prev) => [
-      {
-        id: Date.now().toString(),
-        x,
-        y,
-        te: teVal,
-        refuge: refVal,
-        predator: predVal,
-      },
+      { id: Date.now().toString(), x, y, te: teVal, refuge: refVal, predator: predVal },
       ...prev.filter((o) => !(o.x === x && o.y === y)),
     ]);
     setImportMessage('');
   };
 
-  // Import CSV (NicheMapR / Field)
-  const handleCSVUpload = (e) => {
+  const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -564,7 +961,7 @@ export default function App() {
           setImportMessage('CSV file appears empty or missing data rows.');
           return;
         }
-        const parsed = [];
+        const parsed: Observation[] = [];
         for (let i = 1; i < lines.length; i++) {
           const cols = lines[i].split(',').map((c) => Number(c.trim()));
           if (cols.length >= 3 && !cols.slice(0, 3).some(isNaN)) {
@@ -598,7 +995,6 @@ export default function App() {
     e.target.value = '';
   };
 
-  // Export CSV
   const handleExportCSV = () => {
     const header =
       'X,Y,Te_C,Refuge,Predator,Species,Model,T_pref,CT_min,CT_max,Vulnerability,LOF_Score\n';
@@ -627,9 +1023,8 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Spatial lookup map for both 3D Landscape and 2D Heatmap
   const gridMap = useMemo(() => {
-    const map = new Map();
+    const map = new Map<string, GridEntry>();
     observations.forEach((obs) => {
       const score = calculateLOF(
         obs.te,
@@ -650,7 +1045,6 @@ export default function App() {
     return map;
   }, [observations, tPref, ctMin, ctMax, vulnerability, model, isDark]);
 
-  // Shared theme classes
   const cardClass = isDark
     ? 'bg-slate-900/75 border-slate-800 shadow-xl'
     : 'bg-white border-slate-200/90 shadow-sm';
@@ -667,24 +1061,18 @@ export default function App() {
       }`}
     >
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header with Light / Dark Theme Toggle */}
+        {/* Header with Custom LOF Logo & Theme Toggle */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-3">
-              <div
-                className={`p-2 rounded-xl ${
-                  isDark ? 'bg-cyan-500/15 text-cyan-400' : 'bg-teal-600 text-white shadow-sm'
-                }`}
-              >
-                <Activity className="w-6 h-6" />
-              </div>
+          <div className="flex items-center gap-3.5">
+            <LOFLogo />
+            <div className="space-y-0.5">
               <h1 className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${headingText}`}>
                 Ectotherm Risk Landscape (LOF)
               </h1>
+              <p className={`text-xs md:text-sm font-medium ${mutedText}`}>
+                A Trait-Integrated Spatial Framework for Mapping Multi-Dimensional Fear and Physiological Trade-Offs in Herpetofauna.
+              </p>
             </div>
-            <p className={`text-xs md:text-sm font-medium ${mutedText}`}>
-              A Trait-Integrated Spatial Framework for Mapping Multi-Dimensional Fear and Physiological Trade-Offs in Herpetofauna.
-            </p>
           </div>
 
           <button
@@ -703,6 +1091,32 @@ export default function App() {
 
         {/* Global Top Control Bar */}
         <section className={`border rounded-2xl p-5 space-y-5 ${cardClass}`}>
+          {/* Quick Species Presets */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`text-[11px] font-bold uppercase tracking-wider mr-1 ${mutedText}`}>
+              Quick Species:
+            </span>
+            {SPECIES_PRESETS.map((preset) => {
+              const active = species === preset.scientific;
+              return (
+                <button
+                  key={preset.scientific}
+                  type="button"
+                  onClick={() => applyPreset(preset)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition cursor-pointer ${
+                    active
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+                      : isDark
+                      ? 'bg-slate-950 border-slate-800 text-slate-300 hover:border-teal-500'
+                      : 'bg-slate-100 border-slate-200 text-slate-700 hover:border-teal-500'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Row 1: Species, T_pref, Vulnerability, Model Framework */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
             <div className="md:col-span-3 space-y-1.5">
@@ -759,7 +1173,9 @@ export default function App() {
                 isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100/80 border-slate-200'
               }`}
             >
-              <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${mutedText}`}>
+              <div
+                className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${mutedText}`}
+              >
                 <Sliders className="w-3.5 h-3.5" />
                 Model Framework
               </div>
@@ -876,220 +1292,234 @@ export default function App() {
 
         {/* TAB 1: POINT CALCULATOR */}
         {activeTab === 'calculator' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Microhabitat Variables */}
-            <div className={`lg:col-span-4 border rounded-2xl p-6 space-y-6 ${cardClass}`}>
-              <div className={`flex items-center gap-2 text-base font-bold ${headingText}`}>
-                <Sliders className="w-4 h-4 text-teal-500" />
-                Microhabitat Variables
-              </div>
+          <div className="space-y-6">
+            {/* Interactive Live Microhabitat Diorama */}
+            <HabitatVisualizer
+              te={te}
+              tPref={tPref}
+              ctMin={ctMin}
+              ctMax={ctMax}
+              refuge={refuge}
+              predator={predator}
+              lofScore={currentLOF}
+              species={species}
+              isDark={isDark}
+            />
 
-              {/* Operative Temp */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="flex items-center gap-1.5 font-semibold">
-                    <Thermometer className="w-4 h-4 text-orange-500" />
-                    Operative Temp (Te)
-                  </span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
-                      isDark ? 'bg-orange-950/60 text-orange-400' : 'bg-orange-100 text-orange-700'
-                    }`}
-                  >
-                    {te.toFixed(1)}°C
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={5}
-                  max={50}
-                  step={0.5}
-                  value={te}
-                  onChange={(e) => setTe(Number(e.target.value))}
-                  className="w-full accent-orange-500 cursor-pointer"
-                />
-              </div>
-
-              {/* Refuge Availability */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="flex items-center gap-1.5 font-semibold">
-                    <Leaf className="w-4 h-4 text-emerald-500" />
-                    Refuge Availability
-                  </span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
-                      isDark
-                        ? 'bg-emerald-950/60 text-emerald-400'
-                        : 'bg-emerald-100 text-emerald-700'
-                    }`}
-                  >
-                    {refuge.toFixed(2)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={refuge}
-                  onChange={(e) => setRefuge(Number(e.target.value))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-                <p className={`text-xs text-center font-medium ${mutedText}`}>
-                  Scarcity (1 - R) = {(1 - refuge).toFixed(2)}
-                </p>
-              </div>
-
-              {/* Predator Probability */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="flex items-center gap-1.5 font-semibold">
-                    <ShieldAlert className="w-4 h-4 text-rose-500" />
-                    Predator Probability
-                  </span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
-                      isDark ? 'bg-rose-950/60 text-rose-400' : 'bg-rose-100 text-rose-700'
-                    }`}
-                  >
-                    {predator.toFixed(2)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={predator}
-                  onChange={(e) => setPredator(Number(e.target.value))}
-                  className="w-full accent-rose-500 cursor-pointer"
-                />
-              </div>
-
-              {/* Quick Summary Note */}
-              <div
-                className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
-                  isDark
-                    ? 'bg-slate-950/60 border-slate-800 text-slate-400'
-                    : 'bg-teal-50/60 border-teal-200/70 text-teal-900'
-                }`}
-              >
-                <strong>Active Performance:</strong> At <strong>{te.toFixed(1)}°C</strong>,{' '}
-                <em>{species}</em> operates at <strong>{currentPerformancePct}%</strong> of peak
-                physiological capacity.
-              </div>
-            </div>
-
-            {/* Right Column: Speedometer Gauge + Overlapping Mountain Area Chart */}
-            <div className="lg:col-span-8 space-y-6">
-              {/* LOF Risk Meter (Speedometer Gauge) */}
-              <div className={`border rounded-2xl p-6 ${cardClass}`}>
-                <LOFGaugeMeter score={currentLOF} status={currentStatus} isDark={isDark} />
-              </div>
-
-              {/* Overlapping Mountain-Like Area Graph */}
-              <div className={`border rounded-2xl p-6 space-y-4 ${cardClass}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider ${headingText}`}>
-                    <Activity className="w-4 h-4 text-teal-500" />
-                    Thermal Performance vs. Risk Landscape Curves
-                  </div>
-                  <span className={`text-xs font-semibold ${mutedText}`}>
-                    Translucent Area Comparison (%)
-                  </span>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Microhabitat Variables */}
+              <div className={`lg:col-span-4 border rounded-2xl p-6 space-y-6 ${cardClass}`}>
+                <div className={`flex items-center gap-2 text-base font-bold ${headingText}`}>
+                  <Sliders className="w-4 h-4 text-teal-500" />
+                  Microhabitat Variables
                 </div>
 
-                <div className="h-72 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={mountainData}
-                      margin={{ top: 26, right: 20, left: 0, bottom: 5 }}
+                {/* Operative Temp */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <Thermometer className="w-4 h-4 text-orange-500" />
+                      Operative Temp (Te)
+                    </span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
+                        isDark ? 'bg-orange-950/60 text-orange-400' : 'bg-orange-100 text-orange-700'
+                      }`}
                     >
-                      <defs>
-                        <linearGradient id="perfGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.55} />
-                          <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.05} />
-                        </linearGradient>
-                        <linearGradient id="addGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.45} />
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.05} />
-                        </linearGradient>
-                        <linearGradient id="multGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.5} />
-                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.05} />
-                        </linearGradient>
-                      </defs>
+                      {te.toFixed(1)}°C
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={5}
+                    max={50}
+                    step={0.5}
+                    value={te}
+                    onChange={(e) => setTe(Number(e.target.value))}
+                    className="w-full accent-orange-500 cursor-pointer"
+                  />
+                </div>
 
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke={isDark ? '#1e293b' : '#e2e8f0'}
-                      />
-                      <XAxis
-                        dataKey="temp"
-                        stroke={isDark ? '#94a3b8' : '#64748b'}
-                        tick={{ fontSize: 11 }}
-                        unit="°C"
-                      />
-                      <YAxis
-                        domain={[0, 100]}
-                        stroke={isDark ? '#94a3b8' : '#64748b'}
-                        tick={{ fontSize: 11 }}
-                        unit="%"
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                          borderColor: isDark ? '#334155' : '#cbd5e1',
-                          borderRadius: '0.75rem',
-                          fontSize: '12px',
-                          color: isDark ? '#f8fafc' : '#0f172a',
-                        }}
-                        formatter={(value, name) => [`${value}%`, name]}
-                        labelFormatter={(label) => `Operative Temp: ${label}°C`}
-                      />
-                      <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
+                {/* Refuge Availability */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <Leaf className="w-4 h-4 text-emerald-500" />
+                      Refuge Availability
+                    </span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
+                        isDark
+                          ? 'bg-emerald-950/60 text-emerald-400'
+                          : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {refuge.toFixed(2)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={refuge}
+                    onChange={(e) => setRefuge(Number(e.target.value))}
+                    className="w-full accent-emerald-500 cursor-pointer"
+                  />
+                  <p className={`text-xs text-center font-medium ${mutedText}`}>
+                    Scarcity (1 - R) = {(1 - refuge).toFixed(2)}
+                  </p>
+                </div>
 
-                      <Area
-                        type="monotone"
-                        dataKey="performance"
-                        name="Thermal Performance (%)"
-                        stroke="#06b6d4"
-                        strokeWidth={2.5}
-                        fill="url(#perfGrad)"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="additiveRisk"
-                        name="Additive LOF Risk (%)"
-                        stroke="#f59e0b"
-                        strokeWidth={2.5}
-                        fill="url(#addGrad)"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="multiplicativeRisk"
-                        name="Multiplicative LOF Risk (%)"
-                        stroke="#f43f5e"
-                        strokeWidth={2.5}
-                        fill="url(#multGrad)"
-                      />
+                {/* Predator Probability */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <ShieldAlert className="w-4 h-4 text-rose-500" />
+                      Predator Probability
+                    </span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
+                        isDark ? 'bg-rose-950/60 text-rose-400' : 'bg-rose-100 text-rose-700'
+                      }`}
+                    >
+                      {predator.toFixed(2)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={predator}
+                    onChange={(e) => setPredator(Number(e.target.value))}
+                    className="w-full accent-rose-500 cursor-pointer"
+                  />
+                </div>
 
-                      <ReferenceLine
-                        x={Math.round(te)}
-                        stroke={isDark ? '#f97316' : '#ea580c'}
-                        strokeDasharray="4 4"
-                        strokeWidth={2}
-                        label={{
-                          value: `Current Te (${te.toFixed(1)}°C)`,
-                          position: 'top',
-                          fill: isDark ? '#fb923c' : '#ea580c',
-                          fontSize: 11,
-                          fontWeight: 700,
-                        }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                <div
+                  className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
+                    isDark
+                      ? 'bg-slate-950/60 border-slate-800 text-slate-400'
+                      : 'bg-teal-50/60 border-teal-200/70 text-teal-900'
+                  }`}
+                >
+                  <strong>Active Performance:</strong> At <strong>{te.toFixed(1)}°C</strong>,{' '}
+                  <em>{species}</em> operates at <strong>{currentPerformancePct}%</strong> of peak
+                  physiological capacity.
+                </div>
+              </div>
+
+              {/* Right Column: Speedometer Gauge + Overlapping Mountain Area Chart */}
+              <div className="lg:col-span-8 space-y-6">
+                <div className={`border rounded-2xl p-6 ${cardClass}`}>
+                  <LOFGaugeMeter score={currentLOF} status={currentStatus} isDark={isDark} />
+                </div>
+
+                <div className={`border rounded-2xl p-6 space-y-4 ${cardClass}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div
+                      className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider ${headingText}`}
+                    >
+                      <Activity className="w-4 h-4 text-teal-500" />
+                      Thermal Performance vs. Risk Landscape Curves
+                    </div>
+                    <span className={`text-xs font-semibold ${mutedText}`}>
+                      β = 3 Thermal Gating Comparison (%)
+                    </span>
+                  </div>
+
+                  <div className="h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={mountainData}
+                        margin={{ top: 26, right: 20, left: 0, bottom: 5 }}
+                      >
+                        <defs>
+                          <linearGradient id="perfGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.55} />
+                            <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.05} />
+                          </linearGradient>
+                          <linearGradient id="addGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.45} />
+                            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.05} />
+                          </linearGradient>
+                          <linearGradient id="multGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.5} />
+                            <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.05} />
+                          </linearGradient>
+                        </defs>
+
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke={isDark ? '#1e293b' : '#e2e8f0'}
+                        />
+                        <XAxis
+                          dataKey="temp"
+                          stroke={isDark ? '#94a3b8' : '#64748b'}
+                          tick={{ fontSize: 11 }}
+                          unit="°C"
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          stroke={isDark ? '#94a3b8' : '#64748b'}
+                          tick={{ fontSize: 11 }}
+                          unit="%"
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                            borderColor: isDark ? '#334155' : '#cbd5e1',
+                            borderRadius: '0.75rem',
+                            fontSize: '12px',
+                            color: isDark ? '#f8fafc' : '#0f172a',
+                          }}
+                          formatter={(value, name) => [`${value}%`, name]}
+                          labelFormatter={(label) => `Operative Temp: ${label}°C`}
+                        />
+                        <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
+
+                        <Area
+                          type="monotone"
+                          dataKey="performance"
+                          name="Thermal Performance (%)"
+                          stroke="#06b6d4"
+                          strokeWidth={2.5}
+                          fill="url(#perfGrad)"
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="additiveRisk"
+                          name="Additive LOF Risk (%)"
+                          stroke="#f59e0b"
+                          strokeWidth={2.5}
+                          fill="url(#addGrad)"
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="multiplicativeRisk"
+                          name="Multiplicative LOF Risk (%)"
+                          stroke="#f43f5e"
+                          strokeWidth={2.5}
+                          fill="url(#multGrad)"
+                        />
+
+                        <ReferenceLine
+                          x={Math.round(te)}
+                          stroke={isDark ? '#f97316' : '#ea580c'}
+                          strokeDasharray="4 4"
+                          strokeWidth={2}
+                          label={{
+                            value: `Current Te (${te.toFixed(1)}°C)`,
+                            position: 'top',
+                            fill: isDark ? '#fb923c' : '#ea580c',
+                            fontSize: 11,
+                            fontWeight: 700,
+                          }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1099,10 +1529,11 @@ export default function App() {
         {/* TAB 2: FIELD DATA & MAPPING */}
         {activeTab === 'mapping' && (
           <div className="space-y-6">
-            {/* Add Observation + CSV Controls */}
             <div className={`border rounded-2xl p-6 space-y-5 ${cardClass}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider ${headingText}`}>
+                <div
+                  className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider ${headingText}`}
+                >
                   <MapIcon className="w-4 h-4 text-teal-500" />
                   Add Field Observation
                 </div>
@@ -1265,9 +1696,7 @@ export default function App() {
               </form>
             </div>
 
-            {/* Bottom Row: Spatial Visualization (3D Landscape / 2D Heatmap) + Dataset Table */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Spatial Visualization Card */}
               <div className={`lg:col-span-7 border rounded-2xl p-6 space-y-4 ${cardClass}`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -1289,7 +1718,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 3D Landscape / 2D Heatmap Toggle */}
                   <div
                     className={`flex p-1 rounded-xl border ${
                       isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
@@ -1299,9 +1727,7 @@ export default function App() {
                       type="button"
                       onClick={() => setSpatialView('3d')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        spatialView === '3d'
-                          ? 'bg-teal-600 text-white shadow-sm'
-                          : mutedText
+                        spatialView === '3d' ? 'bg-teal-600 text-white shadow-sm' : mutedText
                       }`}
                     >
                       <Mountain className="w-3.5 h-3.5" />
@@ -1311,9 +1737,7 @@ export default function App() {
                       type="button"
                       onClick={() => setSpatialView('2d')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        spatialView === '2d'
-                          ? 'bg-teal-600 text-white shadow-sm'
-                          : mutedText
+                        spatialView === '2d' ? 'bg-teal-600 text-white shadow-sm' : mutedText
                       }`}
                     >
                       <Grid className="w-3.5 h-3.5" />
@@ -1360,9 +1784,10 @@ export default function App() {
                 )}
               </div>
 
-              {/* Observation Dataset Table */}
               <div className={`lg:col-span-5 border rounded-2xl p-6 space-y-4 ${cardClass}`}>
-                <h2 className={`text-sm font-bold uppercase tracking-wider text-center ${headingText}`}>
+                <h2
+                  className={`text-sm font-bold uppercase tracking-wider text-center ${headingText}`}
+                >
                   Observation Dataset ({observations.length})
                 </h2>
 
