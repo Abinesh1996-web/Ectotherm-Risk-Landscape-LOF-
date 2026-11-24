@@ -17,6 +17,10 @@ import {
   Grid,
   RotateCcw,
   Sparkles,
+  FileSpreadsheet,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -137,7 +141,7 @@ function calculatePerformance(
 /**
  * Exact Manuscript Section 2.3 Equations:
  * Additive: 0.40*P + 0.20*R + 0.20*T + 0.20*F
- * Multiplicative: min(1, (0.50*P + 0.25*R + 0.25*F) * exp(3 * T))
+ * Multiplicative: min(1, (0.50*P + 0.25*R + 0.25*F) * exp(beta * T))
  */
 function calculateLOF(
   te: number,
@@ -147,7 +151,8 @@ function calculateLOF(
   ctMin: number,
   ctMax: number,
   vulnerability: number,
-  model: ModelType
+  model: ModelType,
+  beta = 3.0
 ): number {
   const scarcity = 1 - refuge;
   const deltaTMax =
@@ -162,7 +167,6 @@ function calculateLOF(
       0.2 * vulnerability;
     return Math.max(0, Math.min(1, raw));
   } else {
-    const beta = 3;
     const baseRisk = 0.5 * predator + 0.25 * scarcity + 0.25 * vulnerability;
     const raw = baseRisk * Math.exp(beta * thermalMismatch);
     return Math.max(0, Math.min(1, raw));
@@ -226,7 +230,6 @@ function LOFLogo() {
             <stop offset="100%" stopColor="#f43f5e" />
           </linearGradient>
         </defs>
-        {/* Topographic Mountain Peaks (Landscape of Fear) */}
         <path
           d="M 8 44 L 22 25 L 33 37 L 45 19 L 56 44 Z"
           fill="#0d3b2e"
@@ -234,7 +237,6 @@ function LOFLogo() {
           strokeWidth="2"
           strokeLinejoin="round"
         />
-        {/* Stylized Lizard Silhouette curving over peaks */}
         <path
           d="M 15 35 C 21 26, 30 22, 39 24 C 44 25, 48 22, 51 20"
           fill="none"
@@ -242,7 +244,6 @@ function LOFLogo() {
           strokeWidth="4.2"
           strokeLinecap="round"
         />
-        {/* Lizard Head & Legs */}
         <circle cx="52" cy="19.5" r="3" fill="#4ade80" />
         <path
           d="M 27 25 L 24 31 M 37 24 L 39 30 M 15 35 C 12 37, 10 35, 11 32"
@@ -251,7 +252,6 @@ function LOFLogo() {
           strokeWidth="2.4"
           strokeLinecap="round"
         />
-        {/* Thermal Risk Wave at Base */}
         <path
           d="M 8 51 Q 20 44, 32 51 T 56 51"
           fill="none"
@@ -265,7 +265,7 @@ function LOFLogo() {
 }
 
 /**
- * Interactive Live Habitat Diorama (Makes LOF & Thermoregulation intuitive for students & youth)
+ * Interactive Live Habitat Diorama
  */
 function HabitatVisualizer({
   te,
@@ -292,11 +292,9 @@ function HabitatVisualizer({
   const isHot = te > tPref + 4.5;
   const isExtreme = te <= ctMin + 1 || te >= ctMax - 1;
 
-  // Dynamic sky gradient based on temperature
   const skyTop = isCold ? '#0284c7' : isHot ? '#dc2626' : '#0ea5e9';
   const skyBottom = isCold ? '#bae6fd' : isHot ? '#fed7aa' : '#fef3c7';
 
-  // Dynamic lizard body color & status caption
   const lizardColor = isCold ? '#38bdf8' : isHot ? '#f43f5e' : '#10b981';
   const thermalMood = isExtreme
     ? 'Lethal Thermal Stress!'
@@ -306,11 +304,15 @@ function HabitatVisualizer({
     ? 'Overheating (Heat Stress)'
     : 'Optimal Thermal Zone (Fast Escape)';
 
-  // Dynamic hawk position (swoops lower as predator probability increases)
+  // Badge color strictly reflects thermal state (fixed mismatch)
+  const thermalBadgeClass = isExtreme
+    ? 'bg-rose-500/15 text-rose-500'
+    : isCold || isHot
+    ? 'bg-amber-500/15 text-amber-600'
+    : 'bg-emerald-500/15 text-emerald-600';
+
   const hawkY = 54 - predator * 24;
   const hawkScale = 0.65 + predator * 0.65;
-
-  // Sun size grows with temperature
   const sunRadius = 11 + Math.max(0, Math.min(14, (te - 10) * 0.35));
 
   return (
@@ -328,15 +330,7 @@ function HabitatVisualizer({
           <Sparkles className="w-4 h-4 text-amber-500" />
           Live Microhabitat Scene
         </div>
-        <span
-          className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
-            isExtreme || lofScore >= 0.65
-              ? 'bg-rose-500/15 text-rose-500'
-              : isCold || isHot || lofScore >= 0.35
-              ? 'bg-amber-500/15 text-amber-600'
-              : 'bg-emerald-500/15 text-emerald-600'
-          }`}
-        >
+        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${thermalBadgeClass}`}>
           {thermalMood}
         </span>
       </div>
@@ -354,10 +348,8 @@ function HabitatVisualizer({
             </linearGradient>
           </defs>
 
-          {/* Sky */}
           <rect x="0" y="0" width="560" height="170" fill="url(#habSky)" />
 
-          {/* Sun / Thermal Source */}
           <g style={{ transition: 'all 0.3s ease' }}>
             <circle
               cx="65"
@@ -384,20 +376,16 @@ function HabitatVisualizer({
             </text>
           </g>
 
-          {/* Distant Landscape Mountains */}
           <path
             d="M 0 122 L 85 78 L 160 112 L 250 68 L 350 115 L 445 72 L 560 118 L 560 170 L 0 170 Z"
             fill={isDark ? '#1e293b' : '#475569'}
             opacity="0.32"
           />
 
-          {/* Ground Terrain */}
           <path d="M 0 120 Q 140 108, 280 120 T 560 116 L 560 170 L 0 170 Z" fill="url(#habGround)" />
 
-          {/* Dynamic Refuge: Rocks & Bushes scale with refuge availability */}
           {refuge > 0.08 && (
             <g opacity={Math.min(1, 0.3 + refuge * 0.8)}>
-              {/* Left Rock Shelter */}
               <ellipse
                 cx="145"
                 cy="128"
@@ -412,7 +400,6 @@ function HabitatVisualizer({
                 ry={8 + refuge * 9}
                 fill="#64748b"
               />
-              {/* Left Bush */}
               <circle cx="110" cy="122" r={10 + refuge * 16} fill="#15803d" />
               <circle cx="128" cy="118" r={8 + refuge * 14} fill="#16a34a" />
             </g>
@@ -420,21 +407,18 @@ function HabitatVisualizer({
 
           {refuge > 0.45 && (
             <g opacity={Math.min(1, (refuge - 0.3) * 1.4)}>
-              {/* Right Bush & Cover */}
               <circle cx="435" cy="120" r={10 + refuge * 15} fill="#15803d" />
               <circle cx="458" cy="124" r={9 + refuge * 13} fill="#22c55e" />
               <ellipse cx="410" cy="133" rx={18 + refuge * 14} ry={9 + refuge * 7} fill="#475569" />
             </g>
           )}
 
-          {/* Dynamic Predator (Hawk Silhouette + Threat Radar) */}
           {predator > 0.05 && (
             <g
               transform={`translate(390, ${hawkY}) scale(${hawkScale})`}
               opacity={Math.min(1, 0.25 + predator * 0.85)}
               style={{ transition: 'all 0.35s ease' }}
             >
-              {/* Threat Radar Ring */}
               <circle
                 cx="0"
                 cy="0"
@@ -442,7 +426,6 @@ function HabitatVisualizer({
                 fill="#f43f5e"
                 opacity={predator * 0.22}
               />
-              {/* Hawk Wings Silhouette */}
               <path
                 d="M -28 4 Q -14 -14, 0 -2 Q 14 -14, 28 4 Q 14 -4, 0 4 Q -14 -4, -28 4 Z"
                 fill="#0f172a"
@@ -451,7 +434,6 @@ function HabitatVisualizer({
             </g>
           )}
 
-          {/* Danger Alert Ring around Lizard when LOF is High */}
           {lofScore >= 0.65 && (
             <ellipse
               cx="275"
@@ -465,11 +447,8 @@ function HabitatVisualizer({
             />
           )}
 
-          {/* Stylized Ectotherm (Lizard) in Center */}
           <g transform="translate(275, 130)">
-            {/* Shadow */}
             <ellipse cx="0" cy="9" rx="34" ry="5" fill="#000000" opacity="0.25" />
-            {/* Tail */}
             <path
               d="M -22 2 C -38 4, -48 -4, -56 -1"
               fill="none"
@@ -477,20 +456,16 @@ function HabitatVisualizer({
               strokeWidth="4.5"
               strokeLinecap="round"
             />
-            {/* Body */}
             <ellipse cx="-2" cy="0" rx="22" ry="7.5" fill={lizardColor} />
-            {/* Head */}
             <ellipse cx="22" cy="-2" rx="9" ry="6" fill={lizardColor} />
             <circle cx="25" cy="-3.5" r="1.8" fill="#0f172a" />
             <circle cx="25.6" cy="-4" r="0.6" fill="#ffffff" />
-            {/* Legs */}
             <path
               d="M -12 5 L -17 12 M 10 5 L 15 12 M -8 -4 L -12 -10 M 11 -4 L 15 -9"
               stroke={lizardColor}
               strokeWidth="3.2"
               strokeLinecap="round"
             />
-            {/* Cold Shiver Lines */}
             {isCold && (
               <path
                 d="M -18 -14 Q -15 -18, -12 -14 M 4 -15 Q 7 -19, 10 -15"
@@ -500,7 +475,6 @@ function HabitatVisualizer({
                 strokeLinecap="round"
               />
             )}
-            {/* Overheating Wavy Lines */}
             {isHot && (
               <path
                 d="M -10 -14 Q -13 -19, -10 -24 M 4 -14 Q 1 -19, 4 -24 M 18 -14 Q 15 -19, 18 -24"
@@ -512,7 +486,6 @@ function HabitatVisualizer({
             )}
           </g>
 
-          {/* Subtle Bottom Legend inside Scene */}
           <text
             x="14"
             y="160"
@@ -869,7 +842,9 @@ export default function App() {
   const [ctMax, setCtMax] = useState(45.0);
   const [vulnerability, setVulnerability] = useState(0.7);
   const [model, setModel] = useState<ModelType>('additive');
+  const [beta, setBeta] = useState(3.0);
   const [activeTab, setActiveTab] = useState<'calculator' | 'mapping'>('calculator');
+  const [showDocs, setShowDocs] = useState(false);
 
   // Point Calculator state
   const [te, setTe] = useState(30.0);
@@ -896,8 +871,8 @@ export default function App() {
   };
 
   const currentLOF = useMemo(
-    () => calculateLOF(te, refuge, predator, tPref, ctMin, ctMax, vulnerability, model),
-    [te, refuge, predator, tPref, ctMin, ctMax, vulnerability, model]
+    () => calculateLOF(te, refuge, predator, tPref, ctMin, ctMax, vulnerability, model, beta),
+    [te, refuge, predator, tPref, ctMin, ctMax, vulnerability, model, beta]
   );
   const currentStatus = getRiskStatus(currentLOF, isDark);
   const currentPerformancePct = Math.round(
@@ -913,7 +888,7 @@ export default function App() {
         temp,
         performance: Math.round(calculatePerformance(temp, tPref, ctMin, ctMax) * 100),
         additiveRisk: Math.round(
-          calculateLOF(temp, refuge, predator, tPref, ctMin, ctMax, vulnerability, 'additive') *
+          calculateLOF(temp, refuge, predator, tPref, ctMin, ctMax, vulnerability, 'additive', beta) *
             100
         ),
         multiplicativeRisk: Math.round(
@@ -925,13 +900,14 @@ export default function App() {
             ctMin,
             ctMax,
             vulnerability,
-            'multiplicative'
+            'multiplicative',
+            beta
           ) * 100
         ),
       });
     }
     return points;
-  }, [tPref, ctMin, ctMax, refuge, predator, vulnerability]);
+  }, [tPref, ctMin, ctMax, refuge, predator, vulnerability, beta]);
 
   const handleAddObservation = (e: React.FormEvent) => {
     e.preventDefault();
@@ -995,9 +971,26 @@ export default function App() {
     e.target.value = '';
   };
 
+  const handleDownloadSampleCSV = () => {
+    const sample =
+      'x,y,te,refuge,predator\n' +
+      '2,2,34.0,0.95,0.05\n' +
+      '3,5,28.5,0.60,0.40\n' +
+      '5,5,41.0,0.20,0.70\n' +
+      '7,8,25.0,0.30,0.85\n' +
+      '9,9,35.5,0.10,0.90\n';
+    const blob = new Blob([sample], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'sample_nichemapr_lof_input.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportCSV = () => {
     const header =
-      'X,Y,Te_C,Refuge,Predator,Species,Model,T_pref,CT_min,CT_max,Vulnerability,LOF_Score\n';
+      'X,Y,Te_C,Refuge,Predator,Species,Model,Beta,T_pref,CT_min,CT_max,Vulnerability,LOF_Score\n';
     const rows = observations
       .map((obs) => {
         const score = calculateLOF(
@@ -1008,9 +1001,10 @@ export default function App() {
           ctMin,
           ctMax,
           vulnerability,
-          model
+          model,
+          beta
         ).toFixed(3);
-        return `${obs.x},${obs.y},${obs.te},${obs.refuge},${obs.predator},"${species}",${model},${tPref},${ctMin},${ctMax},${vulnerability},${score}`;
+        return `${obs.x},${obs.y},${obs.te},${obs.refuge},${obs.predator},"${species}",${model},${beta},${tPref},${ctMin},${ctMax},${vulnerability},${score}`;
       })
       .join('\n');
 
@@ -1018,7 +1012,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ectotherm_lof_${model}.csv`;
+    link.download = `ectotherm_lof_${model}_beta${beta}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -1034,7 +1028,8 @@ export default function App() {
         ctMin,
         ctMax,
         vulnerability,
-        model
+        model,
+        beta
       );
       map.set(`${obs.x},${obs.y}`, {
         obs,
@@ -1043,7 +1038,7 @@ export default function App() {
       });
     });
     return map;
-  }, [observations, tPref, ctMin, ctMax, vulnerability, model, isDark]);
+  }, [observations, tPref, ctMin, ctMax, vulnerability, model, beta, isDark]);
 
   const cardClass = isDark
     ? 'bg-slate-900/75 border-slate-800 shadow-xl'
@@ -1140,11 +1135,16 @@ export default function App() {
               </div>
               <input
                 type="range"
-                min={ctMin + 1}
-                max={ctMax - 1}
+                min={5}
+                max={50}
                 step={0.5}
                 value={tPref}
-                onChange={(e) => setTPref(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setTPref(val);
+                  if (val <= ctMin + 2) setCtMin(Math.max(0, val - 2));
+                  if (val >= ctMax - 2) setCtMax(Math.min(55, val + 2));
+                }}
                 className="w-full accent-teal-500 cursor-pointer"
               />
             </div>
@@ -1210,15 +1210,15 @@ export default function App() {
             </div>
           </div>
 
-          {/* Row 2: Critical Thermal Limits */}
+          {/* Row 2: Fixed-Scale Critical Thermal Limits + Interactive Beta Sensitivity Slider */}
           <div
-            className={`pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-6 ${
+            className={`pt-4 border-t grid grid-cols-1 md:grid-cols-12 gap-6 ${
               isDark ? 'border-slate-800/80' : 'border-slate-200'
             }`}
           >
-            <div className="space-y-1.5">
+            <div className="md:col-span-4 space-y-1.5">
               <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                <span className={mutedText}>Critical Thermal Minimum (CT_min)</span>
+                <span className={mutedText}>Critical Thermal Min (CT_min)</span>
                 <span className={isDark ? 'text-sky-400' : 'text-sky-600'}>
                   {ctMin.toFixed(1)}°C
                 </span>
@@ -1226,29 +1226,62 @@ export default function App() {
               <input
                 type="range"
                 min={0}
-                max={Math.max(5, tPref - 2)}
+                max={55}
                 step={0.5}
                 value={ctMin}
-                onChange={(e) => setCtMin(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setCtMin(Math.min(val, tPref - 2));
+                }}
                 className="w-full accent-sky-500 cursor-pointer"
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="md:col-span-4 space-y-1.5">
               <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                <span className={mutedText}>Critical Thermal Maximum (CT_max)</span>
+                <span className={mutedText}>Critical Thermal Max (CT_max)</span>
                 <span className={isDark ? 'text-rose-400' : 'text-rose-600'}>
                   {ctMax.toFixed(1)}°C
                 </span>
               </div>
               <input
                 type="range"
-                min={Math.min(55, tPref + 2)}
+                min={0}
                 max={55}
                 step={0.5}
                 value={ctMax}
-                onChange={(e) => setCtMax(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setCtMax(Math.max(val, tPref + 2));
+                }}
                 className="w-full accent-rose-500 cursor-pointer"
+              />
+            </div>
+
+            <div className="md:col-span-4 space-y-1.5">
+              <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
+                <span className={mutedText}>Thermal Sensitivity (β)</span>
+                <span
+                  className={
+                    model === 'multiplicative'
+                      ? 'text-rose-500'
+                      : isDark
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
+                  }
+                >
+                  β = {beta.toFixed(1)} {beta === 3.0 ? '(Default)' : ''}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1.0}
+                max={5.0}
+                step={0.5}
+                value={beta}
+                onChange={(e) => setBeta(Number(e.target.value))}
+                className="w-full accent-amber-500 cursor-pointer"
+                title="Adjust exponential thermal gating constant β (Section 3.3 sensitivity analysis)"
               />
             </div>
           </div>
@@ -1293,7 +1326,6 @@ export default function App() {
         {/* TAB 1: POINT CALCULATOR */}
         {activeTab === 'calculator' && (
           <div className="space-y-6">
-            {/* Interactive Live Microhabitat Diorama */}
             <HabitatVisualizer
               te={te}
               tPref={tPref}
@@ -1425,7 +1457,7 @@ export default function App() {
                       Thermal Performance vs. Risk Landscape Curves
                     </div>
                     <span className={`text-xs font-semibold ${mutedText}`}>
-                      β = 3 Thermal Gating Comparison (%)
+                      β = {beta.toFixed(1)} Thermal Gating Comparison (%)
                     </span>
                   </div>
 
@@ -1474,7 +1506,7 @@ export default function App() {
                             fontSize: '12px',
                             color: isDark ? '#f8fafc' : '#0f172a',
                           }}
-                          formatter={(value, name) => [`${value}%`, name]}
+                          formatter={(value, name) => [`${value}%`, String(name)]}
                           labelFormatter={(label) => `Operative Temp: ${label}°C`}
                         />
                         <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
@@ -1558,6 +1590,19 @@ export default function App() {
                   >
                     <Upload className="w-3.5 h-3.5" />
                     Import CSV (NicheMapR / Field)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSampleCSV}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                      isDark
+                        ? 'bg-slate-800 hover:bg-slate-700 text-sky-300 border-slate-700'
+                        : 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200'
+                    }`}
+                    title="Download a ready-to-use CSV template"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    Sample CSV
                   </button>
                   <button
                     type="button"
@@ -1823,7 +1868,8 @@ export default function App() {
                           ctMin,
                           ctMax,
                           vulnerability,
-                          model
+                          model,
+                          beta
                         );
                         const status = getRiskStatus(score, isDark);
                         return (
@@ -1873,6 +1919,72 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Collapsible Model Equations & Citation Footer */}
+        <footer className={`border rounded-2xl overflow-hidden ${cardClass}`}>
+          <button
+            type="button"
+            onClick={() => setShowDocs((prev) => !prev)}
+            className="w-full px-5 py-3.5 flex items-center justify-between text-xs font-bold uppercase tracking-wider cursor-pointer"
+          >
+            <span className={`flex items-center gap-2 ${headingText}`}>
+              <BookOpen className="w-4 h-4 text-teal-500" />
+              Model Equations, Weights &amp; How to Cite
+            </span>
+            {showDocs ? (
+              <ChevronUp className={`w-4 h-4 ${mutedText}`} />
+            ) : (
+              <ChevronDown className={`w-4 h-4 ${mutedText}`} />
+            )}
+          </button>
+
+          {showDocs && (
+            <div
+              className={`px-5 pb-5 pt-2 border-t grid grid-cols-1 md:grid-cols-2 gap-5 text-xs leading-relaxed ${
+                isDark ? 'border-slate-800 text-slate-300' : 'border-slate-200 text-slate-600'
+              }`}
+            >
+              <div className="space-y-2">
+                <div className={`font-bold uppercase tracking-wider ${headingText}`}>
+                  Mathematical Formulations (Section 2.3)
+                </div>
+                <p>
+                  <strong>Additive Heuristic:</strong>{' '}
+                  <code className="font-mono">
+                    LOF_add = 0.40·P + 0.20·R + 0.20·T + 0.20·F
+                  </code>
+                </p>
+                <p>
+                  <strong>Thermal-Gated Multiplicative:</strong>{' '}
+                  <code className="font-mono">
+                    LOF_mult = min(1, [0.50·P + 0.25·R + 0.25·F] × exp(β·T))
+                  </code>
+                </p>
+                <p className={mutedText}>
+                  Where <em>P</em> = predator probability, <em>R</em> = refuge scarcity (1 − refuge),{' '}
+                  <em>T</em> = normalized thermal mismatch, <em>F</em> = functional vulnerability, and{' '}
+                  <em>β</em> = thermal sensitivity constant (default 3.0).
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className={`font-bold uppercase tracking-wider ${headingText}`}>
+                  Biophysical Integration &amp; Citation
+                </div>
+                <p>
+                  Spatial operative temperature (<em>T_e</em>) layers generated by mechanistic
+                  microclimate models such as <strong>NicheMapR</strong> (Kearney &amp; Porter 2017)
+                  can be imported directly via CSV in the <em>Field Data &amp; Mapping</em> tab.
+                </p>
+                <p className={`italic ${mutedText}`}>
+                  Suggested Citation: Anbazhagan, A. (2026). Ectotherm Risk Landscape (LOF): A
+                  Trait-Integrated Spatial Framework for Mapping Multi-Dimensional Fear and
+                  Physiological Trade-Offs in Herpetofauna. Interactive Web Application.
+                </p>
+              </div>
+            </div>
+          )}
+        </footer>
       </div>
     </div>
   );
