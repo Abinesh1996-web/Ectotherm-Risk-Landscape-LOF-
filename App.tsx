@@ -71,38 +71,39 @@ interface GridEntry {
   status: RiskStatus;
 }
 
+// Final Locked-In Table 2 Species Profiles (Temperate vs. Tropical India)
 const SPECIES_PRESETS: SpeciesPreset[] = [
   {
-    label: 'Western Fence Lizard (Profile A)',
-    scientific: 'Sceloporus occidentalis',
-    tPref: 34.5,
-    ctMin: 24.0,
-    ctMax: 45.0,
+    label: 'Southwestern Fence Lizard (Profile A)',
+    scientific: 'Sceloporus cowlesi',
+    tPref: 34.9,
+    ctMin: 7.5,
+    ctMax: 42.1,
     vulnerability: 0.7,
   },
   {
-    label: 'Viviparous Lizard (Profile B)',
-    scientific: 'Zootoca vivipara',
-    tPref: 32.3,
-    ctMin: 18.0,
-    ctMax: 41.0,
+    label: 'Common Wall Lizard (Profile B)',
+    scientific: 'Podarcis muralis',
+    tPref: 34.2,
+    ctMin: 5.9,
+    ctMax: 44.2,
     vulnerability: 0.4,
   },
   {
-    label: 'Desert Iguana',
-    scientific: 'Dipsosaurus dorsalis',
-    tPref: 38.5,
-    ctMin: 25.0,
-    ctMax: 47.0,
-    vulnerability: 0.6,
+    label: 'Peninsular Rock Agama (Profile C)',
+    scientific: 'Psammophilus dorsalis',
+    tPref: 25.4,
+    ctMin: 17.2,
+    ctMax: 42.0,
+    vulnerability: 0.65,
   },
   {
-    label: 'Green Tree Frog',
-    scientific: 'Hyla cinerea',
-    tPref: 26.0,
-    ctMin: 14.0,
-    ctMax: 36.0,
-    vulnerability: 0.55,
+    label: 'Oriental Garden Lizard (Profile D)',
+    scientific: 'Calotes versicolor',
+    tPref: 28.2,
+    ctMin: 13.9,
+    ctMax: 45.5,
+    vulnerability: 0.45,
   },
 ];
 
@@ -216,9 +217,6 @@ function getRiskStatus(score: number, isDark: boolean): RiskStatus {
   };
 }
 
-/**
- * Custom Minimalist Vector Logo: Lizard + Landscape of Fear Peaks + Thermal Wave
- */
 function LOFLogo() {
   return (
     <div className="w-12 h-12 rounded-2xl bg-[#06281e] border border-emerald-500/40 shadow-md flex items-center justify-center shrink-0 overflow-hidden">
@@ -264,9 +262,6 @@ function LOFLogo() {
   );
 }
 
-/**
- * Interactive Live Habitat Diorama
- */
 function HabitatVisualizer({
   te,
   tPref,
@@ -304,7 +299,6 @@ function HabitatVisualizer({
     ? 'Overheating (Heat Stress)'
     : 'Optimal Thermal Zone (Fast Escape)';
 
-  // Badge color strictly reflects thermal state (fixed mismatch)
   const thermalBadgeClass = isExtreme
     ? 'bg-rose-500/15 text-rose-500'
     : isCold || isHot
@@ -492,10 +486,10 @@ function HabitatVisualizer({
             fontSize="10"
             fontWeight="700"
             fill="#ffffff"
-            opacity="0.9"
+            opacity="0.92"
           >
-            {species} • Refuge: {Math.round(refuge * 100)}% • Predator Threat:{' '}
-            {Math.round(predator * 100)}%
+            {species} • Habitat {te.toFixed(1)}°C vs. Pref {tPref.toFixed(1)}°C • Refuge:{' '}
+            {Math.round(refuge * 100)}% • Predator: {Math.round(predator * 100)}%
           </text>
         </svg>
       </div>
@@ -503,9 +497,6 @@ function HabitatVisualizer({
   );
 }
 
-/**
- * Custom SVG Speedometer Gauge for the Composite LOF Score
- */
 function LOFGaugeMeter({
   score,
   status,
@@ -648,9 +639,6 @@ function LOFGaugeMeter({
   );
 }
 
-/**
- * Interactive 3D Isometric Terrain Plot for the 10x10 Landscape of Fear
- */
 function IsometricLandscape({
   gridMap,
   isDark,
@@ -835,11 +823,11 @@ function IsometricLandscape({
 export default function App() {
   const [isDark, setIsDark] = useState(false);
 
-  // Global species & model settings
-  const [species, setSpecies] = useState('Sceloporus occidentalis');
-  const [tPref, setTPref] = useState(34.5);
-  const [ctMin, setCtMin] = useState(24.0);
-  const [ctMax, setCtMax] = useState(45.0);
+  // Default initialized to Profile A (Sceloporus cowlesi)
+  const [species, setSpecies] = useState('Sceloporus cowlesi');
+  const [tPref, setTPref] = useState(34.9);
+  const [ctMin, setCtMin] = useState(7.5);
+  const [ctMax, setCtMax] = useState(42.1);
   const [vulnerability, setVulnerability] = useState(0.7);
   const [model, setModel] = useState<ModelType>('additive');
   const [beta, setBeta] = useState(3.0);
