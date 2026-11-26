@@ -21,6 +21,11 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  HelpCircle,
+  X,
+  Check,
+  Compass,
+  Eye,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -35,6 +40,7 @@ import {
 } from 'recharts';
 
 type ModelType = 'additive' | 'multiplicative';
+type ConverterTab = 'refuge' | 'predator' | 'vulnerability' | 'te';
 
 interface Observation {
   id: string;
@@ -73,7 +79,7 @@ interface GridEntry {
   status: RiskStatus;
 }
 
-// Final Locked-In Table 2 Species Profiles (Temperate vs. Tropical India)
+// Final Locked-In Species Profiles (Temperate vs. Tropical India)
 const SPECIES_PRESETS: SpeciesPreset[] = [
   {
     label: 'Southwestern Fence Lizard (Profile A)',
@@ -260,6 +266,861 @@ function LOFLogo() {
           strokeLinecap="round"
         />
       </svg>
+    </div>
+  );
+}
+
+/**
+ * ALL-IN-ONE INTERACTIVE FIELD-TO-INDEX CONVERTER MODAL
+ * Lets researchers derive Refuge, Predator, Vulnerability (F), and Operative Temp (Te)
+ * from real field measurements with live SVG graphics and one-click Apply.
+ */
+function FieldConverterModal({
+  isOpen,
+  activeTab,
+  onTabChange,
+  onClose,
+  isDark,
+  onApplyRefuge,
+  onApplyPredator,
+  onApplyVulnerability,
+  onApplyTe,
+}: {
+  isOpen: boolean;
+  activeTab: ConverterTab;
+  onTabChange: (tab: ConverterTab) => void;
+  onClose: () => void;
+  isDark: boolean;
+  onApplyRefuge: (val: number) => void;
+  onApplyPredator: (val: number) => void;
+  onApplyVulnerability: (val: number) => void;
+  onApplyTe: (val: number) => void;
+}) {
+  // 1. Refuge methods
+  const [refugeMethod, setRefugeMethod] = useState<'quadrat' | 'distance' | 'preset'>('quadrat');
+  const [coverPct, setCoverPct] = useState(65);
+  const [distShelter, setDistShelter] = useState(1.2);
+  const [maxEscapeDist, setMaxEscapeDist] = useState(5.0);
+  const [refugePreset, setRefugePreset] = useState(0.75);
+
+  const computedRefuge = useMemo(() => {
+    if (refugeMethod === 'quadrat') return Math.max(0, Math.min(1, coverPct / 100));
+    if (refugeMethod === 'distance') {
+      const denom = Math.max(0.1, maxEscapeDist);
+      return Math.max(0, Math.min(1, 1 - distShelter / denom));
+    }
+    return refugePreset;
+  }, [refugeMethod, coverPct, distShelter, maxEscapeDist, refugePreset]);
+
+  // 2. Predator methods
+  const [predMethod, setPredMethod] = useState<'clay' | 'counts' | 'occupancy' | 'preset'>('clay');
+  const [attackedModels, setAttackedModels] = useState(3);
+  const [totalModels, setTotalModels] = useState(25);
+  const [siteDetections, setSiteDetections] = useState(6);
+  const [maxDetections, setMaxDetections] = useState(15);
+  const [occupancyPsi, setOccupancyPsi] = useState(0.45);
+  const [predPreset, setPredPreset] = useState(0.5);
+
+  const computedPredator = useMemo(() => {
+    if (predMethod === 'clay') {
+      return Math.max(0, Math.min(1, attackedModels / Math.max(1, totalModels)));
+    }
+    if (predMethod === 'counts') {
+      return Math.max(0, Math.min(1, siteDetections / Math.max(1, maxDetections)));
+    }
+    if (predMethod === 'occupancy') return Math.max(0, Math.min(1, occupancyPsi));
+    return predPreset;
+  }, [predMethod, attackedModels, totalModels, siteDetections, maxDetections, occupancyPsi, predPreset]);
+
+  // 3. Vulnerability (F) methods
+  const [vulnMethod, setVulnMethod] = useState<'traits' | 'guild'>('traits');
+  const [microExposure, setMicroExposure] = useState(0.75); // Crevice 0.2, Arboreal 0.45, Open Rock 0.75
+  const [conspicuity, setConspicuity] = useState(0.55);
+  const [activityScore, setActivityScore] = useState(0.7);
+  const [defenceScore, setDefenceScore] = useState(0.5);
+  const [guildPreset, setGuildPreset] = useState(0.65);
+
+  const computedVuln = useMemo(() => {
+    if (vulnMethod === 'guild') return guildPreset;
+    const avg = (microExposure + conspicuity + activityScore + defenceScore) / 4;
+    return Math.max(0.1, Math.min(1, Number(avg.toFixed(2))));
+  }, [vulnMethod, microExposure, conspicuity, activityScore, defenceScore, guildPreset]);
+
+  // 4. Operative Temp (Te) methods
+  const [teMethod, setTeMethod] = useState<'solar' | 'direct'>('solar');
+  const [airTemp, setAirTemp] = useState(28.0);
+  const [solarOffset, setSolarOffset] = useState(7.0); // 0 shade, 3 canopy, 7 partial, 12 full sun rock
+  const [directTe, setDirectTe] = useState(34.5);
+
+  const computedTe = useMemo(() => {
+    if (teMethod === 'direct') return Math.max(5, Math.min(50, directTe));
+    return Math.max(5, Math.min(50, Number((airTemp + solarOffset).toFixed(1))));
+  }, [teMethod, airTemp, solarOffset, directTe]);
+
+  if (!isOpen) return null;
+
+  const panelBg = isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800';
+  const subCard = isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200';
+  const muted = isDark ? 'text-slate-400' : 'text-slate-500';
+  const inputCls = isDark
+    ? 'bg-slate-900 border-slate-700 text-white'
+    : 'bg-white border-slate-300 text-slate-900';
+
+  const pillBtn = (active: boolean) =>
+    `px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+      active
+        ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+        : isDark
+        ? 'bg-slate-900 border-slate-700 text-slate-300 hover:border-teal-500'
+        : 'bg-white border-slate-200 text-slate-700 hover:border-teal-500'
+    }`;
+
+  // Visual helpers
+  const filledCells = Math.round(computedRefuge * 25);
+  const displayTotalModels = Math.min(25, Math.max(1, totalModels));
+  const displayAttacked = Math.round(computedPredator * displayTotalModels);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
+      <div className={`w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl ${panelBg}`}>
+        {/* Modal Header */}
+        <div
+          className={`sticky top-0 z-10 px-5 py-4 border-b flex items-center justify-between gap-3 ${
+            isDark ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-teal-600/15 text-teal-500">
+              <Compass className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold tracking-tight">
+                Field-to-Index Converter &amp; Parameterisation Guide
+              </h2>
+              <p className={`text-xs ${muted}`}>
+                Convert raw ecological measurements into standardised LOF inputs—no external tools needed.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className={`p-2 rounded-xl border transition cursor-pointer ${
+              isDark ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'
+            }`}
+            aria-label="Close converter"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Top Parameter Tabs */}
+        <div
+          className={`px-5 pt-4 pb-3 border-b grid grid-cols-2 sm:grid-cols-4 gap-2 ${
+            isDark ? 'border-slate-800' : 'border-slate-200'
+          }`}
+        >
+          {[
+            { id: 'refuge' as ConverterTab, label: 'Refuge (R)', icon: Leaf, color: 'text-emerald-500' },
+            { id: 'predator' as ConverterTab, label: 'Predator (P)', icon: ShieldAlert, color: 'text-rose-500' },
+            { id: 'vulnerability' as ConverterTab, label: 'Vulnerability (F)', icon: Eye, color: 'text-purple-500' },
+            { id: 'te' as ConverterTab, label: 'Operative Temp (Te)', icon: Thermometer, color: 'text-orange-500' },
+          ].map((t) => {
+            const Icon = t.icon;
+            const active = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onTabChange(t.id)}
+                className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  active
+                    ? isDark
+                      ? 'bg-slate-800 border-teal-500 text-white shadow-sm'
+                      : 'bg-teal-50 border-teal-500 text-teal-900 shadow-sm'
+                    : isDark
+                    ? 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${t.color}`} />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Body */}
+        <div className="p-5 space-y-5">
+          {/* ================= TAB 1: REFUGE ================= */}
+          {activeTab === 'refuge' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setRefugeMethod('quadrat')} className={pillBtn(refugeMethod === 'quadrat')}>
+                  1. Quadrat / Cover (%)
+                </button>
+                <button type="button" onClick={() => setRefugeMethod('distance')} className={pillBtn(refugeMethod === 'distance')}>
+                  2. Distance to Shelter (m)
+                </button>
+                <button type="button" onClick={() => setRefugeMethod('preset')} className={pillBtn(refugeMethod === 'preset')}>
+                  3. Microhabitat Presets
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                {/* Controls */}
+                <div className={`md:col-span-7 p-4 rounded-xl border space-y-4 ${subCard}`}>
+                  {refugeMethod === 'quadrat' && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs font-bold">
+                          <span>Usable Shelter Cover in Plot (e.g. 1×1 m quadrat)</span>
+                          <span className="text-emerald-500">{coverPct}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={coverPct}
+                          onChange={(e) => setCoverPct(Number(e.target.value))}
+                          className="w-full accent-emerald-500 cursor-pointer"
+                        />
+                      </div>
+                      <p className={`text-xs leading-relaxed ${muted}`}>
+                        <strong>Formula:</strong>{' '}
+                        <code className="font-mono">R_avail = Cover% / 100</code>. Count the proportion of the sampling quadrat offering usable crevices, leaf litter, shrub canopy, or burrows for the focal species.
+                      </p>
+                    </>
+                  )}
+
+                  {refugeMethod === 'distance' && (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={`block text-[11px] font-bold uppercase mb-1 ${muted}`}>
+                            Distance to Shelter d (m)
+                          </label>
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0}
+                            value={distShelter}
+                            onChange={(e) => setDistShelter(Math.max(0, Number(e.target.value)))}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm font-mono ${inputCls}`}
+                          />
+                        </div>
+                        <div>
+                          <label className={`block text-[11px] font-bold uppercase mb-1 ${muted}`}>
+                            Max Escape Dist d_max (m)
+                          </label>
+                          <input
+                            type="number"
+                            step={0.5}
+                            min={0.5}
+                            value={maxEscapeDist}
+                            onChange={(e) => setMaxEscapeDist(Math.max(0.5, Number(e.target.value)))}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm font-mono ${inputCls}`}
+                          />
+                        </div>
+                      </div>
+                      <p className={`text-xs leading-relaxed ${muted}`}>
+                        <strong>Formula:</strong>{' '}
+                        <code className="font-mono">R_avail = max(0, 1 − d / d_max)</code>. Captures immediate escape accessibility from the focal microsite.
+                      </p>
+                    </>
+                  )}
+
+                  {refugeMethod === 'preset' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { name: 'Open Rock / Bare Sand', val: 0.1, desc: 'No immediate cover' },
+                        { name: 'Sparse Grass / Scrub', val: 0.4, desc: 'Scattered cover patches' },
+                        { name: 'Fractured Boulders', val: 0.75, desc: 'Deep rock crevices' },
+                        { name: 'Dense Understorey / Burrow', val: 0.92, desc: 'Near-total concealment' },
+                      ].map((p) => (
+                        <button
+                          key={p.name}
+                          type="button"
+                          onClick={() => setRefugePreset(p.val)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                            refugePreset === p.val
+                              ? 'border-emerald-500 bg-emerald-500/15'
+                              : isDark
+                              ? 'border-slate-800 hover:border-slate-600'
+                              : 'border-slate-200 hover:border-slate-400'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">{p.name}</div>
+                          <div className={`text-[11px] ${muted}`}>
+                            {p.desc} • <strong className="text-emerald-500">{p.val.toFixed(2)}</strong>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Graphic + Result */}
+                <div className={`md:col-span-5 p-4 rounded-xl border flex flex-col items-center justify-between gap-3 ${subCard}`}>
+                  {refugeMethod === 'distance' ? (
+                    <svg viewBox="0 0 220 95" className="w-full h-auto">
+                      <line x1="20" y1="68" x2="200" y2="68" stroke="#64748b" strokeWidth="2" strokeDasharray="4 3" />
+                      {/* Rock Shelter */}
+                      <ellipse cx="32" cy="60" rx="18" ry="12" fill="#10b981" />
+                      <text x="32" y="84" textAnchor="middle" fontSize="9" fontWeight="700" fill="#10b981">
+                        Refuge (0m)
+                      </text>
+                      {/* Lizard Position */}
+                      <circle
+                        cx={32 + Math.min(1, distShelter / Math.max(0.1, maxEscapeDist)) * 155}
+                        cy="60"
+                        r="7"
+                        fill="#f59e0b"
+                      />
+                      <text
+                        x={32 + Math.min(1, distShelter / Math.max(0.1, maxEscapeDist)) * 155}
+                        y="46"
+                        textAnchor="middle"
+                        fontSize="9"
+                        fontWeight="700"
+                        fill="#f59e0b"
+                      >
+                        {distShelter.toFixed(1)}m
+                      </text>
+                      <text x="188" y="84" textAnchor="middle" fontSize="9" fill="#94a3b8">
+                        d_max ({maxEscapeDist}m)
+                      </text>
+                    </svg>
+                  ) : (
+                    <div className="space-y-1.5 text-center">
+                      <div className={`text-[10px] font-bold uppercase tracking-wider ${muted}`}>
+                        Visual 5×5 Quadrat Cover Map
+                      </div>
+                      <div className="grid grid-cols-5 gap-1 mx-auto w-28">
+                        {Array.from({ length: 25 }, (_, idx) => (
+                          <div
+                            key={idx}
+                            className={`w-4 h-4 rounded-sm transition-colors ${
+                              idx < filledCells
+                                ? 'bg-emerald-500'
+                                : isDark
+                                ? 'bg-slate-800'
+                                : 'bg-slate-200'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-center">
+                    <div className={`text-[11px] font-bold uppercase ${muted}`}>Derived R_avail</div>
+                    <div className="text-3xl font-black text-emerald-500 tabular-nums">
+                      {computedRefuge.toFixed(2)}
+                    </div>
+                    <div className={`text-[11px] ${muted}`}>
+                      Scarcity (1 − R) = {(1 - computedRefuge).toFixed(2)}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyRefuge(Number(computedRefuge.toFixed(2)));
+                      onClose();
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer transition"
+                  >
+                    <Check className="w-4 h-4" />
+                    Apply Refuge ({computedRefuge.toFixed(2)})
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= TAB 2: PREDATOR ================= */}
+          {activeTab === 'predator' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setPredMethod('clay')} className={pillBtn(predMethod === 'clay')}>
+                  1. Clay / 3D Model Assays
+                </button>
+                <button type="button" onClick={() => setPredMethod('counts')} className={pillBtn(predMethod === 'counts')}>
+                  2. Point Counts / Cameras
+                </button>
+                <button type="button" onClick={() => setPredMethod('occupancy')} className={pillBtn(predMethod === 'occupancy')}>
+                  3. Occupancy (ψ)
+                </button>
+                <button type="button" onClick={() => setPredMethod('preset')} className={pillBtn(predMethod === 'preset')}>
+                  4. Field Presets
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                <div className={`md:col-span-7 p-4 rounded-xl border space-y-4 ${subCard}`}>
+                  {predMethod === 'clay' && (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={`block text-[11px] font-bold uppercase mb-1 ${muted}`}>
+                            Models Attacked
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={totalModels}
+                            value={attackedModels}
+                            onChange={(e) => setAttackedModels(Math.max(0, Number(e.target.value)))}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm font-mono ${inputCls}`}
+                          />
+                        </div>
+                        <div>
+                          <label className={`block text-[11px] font-bold uppercase mb-1 ${muted}`}>
+                            Total Deployed
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={totalModels}
+                            onChange={(e) => setTotalModels(Math.max(1, Number(e.target.value)))}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm font-mono ${inputCls}`}
+                          />
+                        </div>
+                      </div>
+                      <p className={`text-xs leading-relaxed ${muted}`}>
+                        <strong>Formula:</strong>{' '}
+                        <code className="font-mono">P_enc = Attacked / Total Deployed</code> (e.g., 2/25 attacked = 0.08). Standard method for quantifying avian &amp; mammalian predation pressure on reptiles.
+                      </p>
+                    </>
+                  )}
+
+                  {predMethod === 'counts' && (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={`block text-[11px] font-bold uppercase mb-1 ${muted}`}>
+                            Site Detections (C_j)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={siteDetections}
+                            onChange={(e) => setSiteDetections(Math.max(0, Number(e.target.value)))}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm font-mono ${inputCls}`}
+                          />
+                        </div>
+                        <div>
+                          <label className={`block text-[11px] font-bold uppercase mb-1 ${muted}`}>
+                            Max Site Count (C_max)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={maxDetections}
+                            onChange={(e) => setMaxDetections(Math.max(1, Number(e.target.value)))}
+                            className={`w-full border rounded-lg px-3 py-2 text-sm font-mono ${inputCls}`}
+                          />
+                        </div>
+                      </div>
+                      <p className={`text-xs leading-relaxed ${muted}`}>
+                        <strong>Formula:</strong>{' '}
+                        <code className="font-mono">P_enc = min(1, C_j / C_max)</code>. Scales point-count, transect, or camera-trap predator detections onto [0, 1].
+                      </p>
+                    </>
+                  )}
+
+                  {predMethod === 'occupancy' && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs font-bold">
+                          <span>Modelled Predator Site Occupancy (ψ_j)</span>
+                          <span className="text-rose-500">{occupancyPsi.toFixed(2)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={occupancyPsi}
+                          onChange={(e) => setOccupancyPsi(Number(e.target.value))}
+                          className="w-full accent-rose-500 cursor-pointer"
+                        />
+                      </div>
+                      <p className={`text-xs leading-relaxed ${muted}`}>
+                        Direct output from single-season or multi-species occupancy models (e.g., R <code className="font-mono">unmarked</code>).
+                      </p>
+                    </>
+                  )}
+
+                  {predMethod === 'preset' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { name: 'Protected Core / Low', val: 0.1, desc: 'Rare raptor/mammal visits' },
+                        { name: 'Natural Woodland Edge', val: 0.4, desc: 'Moderate diurnal predators' },
+                        { name: 'Open Scrub / Agricultural', val: 0.7, desc: 'Frequent avian & snake hunts' },
+                        { name: 'Urban / Feral Predator Hub', val: 0.9, desc: 'Cats, dogs, corvids abundant' },
+                      ].map((p) => (
+                        <button
+                          key={p.name}
+                          type="button"
+                          onClick={() => setPredPreset(p.val)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                            predPreset === p.val
+                              ? 'border-rose-500 bg-rose-500/15'
+                              : isDark
+                              ? 'border-slate-800 hover:border-slate-600'
+                              : 'border-slate-200 hover:border-slate-400'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">{p.name}</div>
+                          <div className={`text-[11px] ${muted}`}>
+                            {p.desc} • <strong className="text-rose-500">{p.val.toFixed(2)}</strong>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Graphic + Result */}
+                <div className={`md:col-span-5 p-4 rounded-xl border flex flex-col items-center justify-between gap-3 ${subCard}`}>
+                  <div className="space-y-1.5 text-center">
+                    <div className={`text-[10px] font-bold uppercase tracking-wider ${muted}`}>
+                      {predMethod === 'clay'
+                        ? `Replica Assay Hit Map (${displayAttacked}/${displayTotalModels})`
+                        : 'Relative Predation Pressure'}
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5 mx-auto">
+                      {Array.from({ length: displayTotalModels }, (_, idx) => (
+                        <div
+                          key={idx}
+                          className={`w-4 h-4 rounded-full transition-colors ${
+                            idx < displayAttacked
+                              ? 'bg-rose-500 ring-2 ring-rose-500/30'
+                              : isDark
+                              ? 'bg-slate-800'
+                              : 'bg-slate-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="text-center">
+                    <div className={`text-[11px] font-bold uppercase ${muted}`}>Derived P_enc</div>
+                    <div className="text-3xl font-black text-rose-500 tabular-nums">
+                      {computedPredator.toFixed(2)}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyPredator(Number(computedPredator.toFixed(2)));
+                      onClose();
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer transition"
+                  >
+                    <Check className="w-4 h-4" />
+                    Apply Predator ({computedPredator.toFixed(2)})
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= TAB 3: VULNERABILITY (F) ================= */}
+          {activeTab === 'vulnerability' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setVulnMethod('traits')} className={pillBtn(vulnMethod === 'traits')}>
+                  1. ReptTraits 4-Trait Rubric
+                </button>
+                <button type="button" onClick={() => setVulnMethod('guild')} className={pillBtn(vulnMethod === 'guild')}>
+                  2. Ecological Guild Presets
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                <div className={`md:col-span-7 p-4 rounded-xl border space-y-3 ${subCard}`}>
+                  {vulnMethod === 'traits' ? (
+                    <>
+                      {[
+                        {
+                          label: 'Microhabitat Exposure',
+                          val: microExposure,
+                          set: setMicroExposure,
+                          opts: [
+                            { t: 'Fossorial/Crevice', v: 0.2 },
+                            { t: 'Arboreal/Generalist', v: 0.45 },
+                            { t: 'Open/Saxicolous', v: 0.75 },
+                          ],
+                        },
+                        {
+                          label: 'Visual Conspicuity',
+                          val: conspicuity,
+                          set: setConspicuity,
+                          opts: [
+                            { t: 'Highly Cryptic', v: 0.2 },
+                            { t: 'Moderate', v: 0.5 },
+                            { t: 'Conspicuous/Bright', v: 0.85 },
+                          ],
+                        },
+                        {
+                          label: 'Activity Period',
+                          val: activityScore,
+                          set: setActivityScore,
+                          opts: [
+                            { t: 'Nocturnal', v: 0.25 },
+                            { t: 'Cathemeral', v: 0.5 },
+                            { t: 'Diurnal Basker', v: 0.75 },
+                          ],
+                        },
+                        {
+                          label: 'Antipredator Defence',
+                          val: defenceScore,
+                          set: setDefenceScore,
+                          opts: [
+                            { t: 'Venom/Armour', v: 0.15 },
+                            { t: 'Fast Sprint/Autotomy', v: 0.45 },
+                            { t: 'Minimal Defence', v: 0.8 },
+                          ],
+                        },
+                      ].map((row) => (
+                        <div key={row.label} className="space-y-1">
+                          <div className="text-[11px] font-bold uppercase tracking-wider">{row.label}</div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {row.opts.map((o) => (
+                              <button
+                                key={o.t}
+                                type="button"
+                                onClick={() => row.set(o.v)}
+                                className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
+                                  row.val === o.v
+                                    ? 'bg-purple-600 text-white border-purple-600'
+                                    : isDark
+                                    ? 'bg-slate-900 border-slate-800 text-slate-300'
+                                    : 'bg-white border-slate-200 text-slate-700'
+                                }`}
+                              >
+                                {o.t}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { name: 'Venomous Viper / Cryptic', val: 0.25, desc: 'Ambush + venom defence' },
+                        { name: 'Crevice / Wall Generalist', val: 0.4, desc: 'e.g., Podarcis muralis' },
+                        { name: 'Arboreal Agamid', val: 0.45, desc: 'e.g., Calotes versicolor' },
+                        { name: 'Open Rock / Basker Specialist', val: 0.7, desc: 'e.g., S. cowlesi / P. dorsalis' },
+                      ].map((p) => (
+                        <button
+                          key={p.name}
+                          type="button"
+                          onClick={() => setGuildPreset(p.val)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                            guildPreset === p.val
+                              ? 'border-purple-500 bg-purple-500/15'
+                              : isDark
+                              ? 'border-slate-800 hover:border-slate-600'
+                              : 'border-slate-200 hover:border-slate-400'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">{p.name}</div>
+                          <div className={`text-[11px] ${muted}`}>
+                            {p.desc} • <strong className="text-purple-500">{p.val.toFixed(2)}</strong>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Graphic + Result */}
+                <div className={`md:col-span-5 p-4 rounded-xl border flex flex-col items-center justify-between gap-3 ${subCard}`}>
+                  <div className="w-full space-y-2">
+                    <div className={`text-[10px] font-bold uppercase tracking-wider text-center ${muted}`}>
+                      Trait Risk Profile
+                    </div>
+                    {[
+                      { k: 'Exposure', v: vulnMethod === 'traits' ? microExposure : computedVuln },
+                      { k: 'Conspicuity', v: vulnMethod === 'traits' ? conspicuity : computedVuln },
+                      { k: 'Activity', v: vulnMethod === 'traits' ? activityScore : computedVuln },
+                      { k: 'Defence Gap', v: vulnMethod === 'traits' ? defenceScore : computedVuln },
+                    ].map((b) => (
+                      <div key={b.k} className="space-y-0.5">
+                        <div className="flex justify-between text-[10px] font-semibold">
+                          <span>{b.k}</span>
+                          <span>{Math.round(b.v * 100)}%</span>
+                        </div>
+                        <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                          <div
+                            className="h-full bg-purple-500 rounded-full transition-all"
+                            style={{ width: `${Math.round(b.v * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="text-center">
+                    <div className={`text-[11px] font-bold uppercase ${muted}`}>Derived Vulnerability (F)</div>
+                    <div className="text-3xl font-black text-purple-500 tabular-nums">
+                      {computedVuln.toFixed(2)}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyVulnerability(computedVuln);
+                      onClose();
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold cursor-pointer transition"
+                  >
+                    <Check className="w-4 h-4" />
+                    Apply Vulnerability ({computedVuln.toFixed(2)})
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= TAB 4: OPERATIVE TEMP (Te) ================= */}
+          {activeTab === 'te' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setTeMethod('solar')} className={pillBtn(teMethod === 'solar')}>
+                  1. Air Temp + Solar Exposure Estimator
+                </button>
+                <button type="button" onClick={() => setTeMethod('direct')} className={pillBtn(teMethod === 'direct')}>
+                  2. Direct Copper Model / iButton / NicheMapR
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                <div className={`md:col-span-7 p-4 rounded-xl border space-y-4 ${subCard}`}>
+                  {teMethod === 'solar' ? (
+                    <>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs font-bold">
+                          <span>Shaded Ambient Air Temp (T_air)</span>
+                          <span className="text-orange-500">{airTemp.toFixed(1)}°C</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={5}
+                          max={42}
+                          step={0.5}
+                          value={airTemp}
+                          onChange={(e) => setAirTemp(Number(e.target.value))}
+                          className="w-full accent-orange-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-bold uppercase tracking-wider">Solar Microsite Exposure</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { name: 'Deep Shade / Burrow', offset: 0 },
+                            { name: 'Filtered Canopy', offset: 3 },
+                            { name: 'Partial Sun / Edge', offset: 7 },
+                            { name: 'Full Sun Rock / Open', offset: 12 },
+                          ].map((s) => (
+                            <button
+                              key={s.name}
+                              type="button"
+                              onClick={() => setSolarOffset(s.offset)}
+                              className={`p-2 rounded-xl border text-left text-xs font-semibold transition cursor-pointer ${
+                                solarOffset === s.offset
+                                  ? 'border-orange-500 bg-orange-500/15 text-orange-500'
+                                  : isDark
+                                  ? 'border-slate-800 text-slate-300'
+                                  : 'border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {s.name}{' '}
+                              <span className="font-mono text-[11px]">(+{s.offset}°C)</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className={`block text-[11px] font-bold uppercase mb-1 ${muted}`}>
+                          Measured Operative Temperature Te (°C)
+                        </label>
+                        <input
+                          type="number"
+                          step={0.1}
+                          min={5}
+                          max={50}
+                          value={directTe}
+                          onChange={(e) => setDirectTe(Number(e.target.value))}
+                          className={`w-full border rounded-lg px-3 py-2 text-sm font-mono ${inputCls}`}
+                        />
+                      </div>
+                      <p className={`text-xs leading-relaxed ${muted}`}>
+                        Use direct readings from painted copper operative-temperature models, thermal data loggers (iButtons), or biophysical outputs from <strong>NicheMapR</strong>. For spatial grids, upload a CSV in the <em>Field Data &amp; Mapping</em> tab.
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {/* Graphic + Result */}
+                <div className={`md:col-span-5 p-4 rounded-xl border flex flex-col items-center justify-between gap-3 ${subCard}`}>
+                  <svg viewBox="0 0 180 80" className="w-full h-auto">
+                    <rect x="20" y="34" width="140" height="14" rx="7" fill={isDark ? '#1e293b' : '#e2e8f0'} />
+                    <rect
+                      x="20"
+                      y="34"
+                      width={Math.max(8, Math.min(140, ((computedTe - 5) / 45) * 140))}
+                      height="14"
+                      rx="7"
+                      fill={computedTe > 38 ? '#e11d48' : computedTe < 18 ? '#0284c7' : '#f97316'}
+                    />
+                    <text x="20" y="65" fontSize="9" fill="#94a3b8">
+                      5°C
+                    </text>
+                    <text x="90" y="22" textAnchor="middle" fontSize="11" fontWeight="800" fill="#f97316">
+                      Estimated Te: {computedTe.toFixed(1)}°C
+                    </text>
+                    <text x="160" y="65" textAnchor="end" fontSize="9" fill="#94a3b8">
+                      50°C
+                    </text>
+                  </svg>
+
+                  <div className="text-center">
+                    <div className={`text-[11px] font-bold uppercase ${muted}`}>Operative Temp (Te)</div>
+                    <div className="text-3xl font-black text-orange-500 tabular-nums">
+                      {computedTe.toFixed(1)}°C
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyTe(computedTe);
+                      onClose();
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold cursor-pointer transition"
+                  >
+                    <Check className="w-4 h-4" />
+                    Apply Te ({computedTe.toFixed(1)}°C)
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -836,6 +1697,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'calculator' | 'mapping'>('calculator');
   const [showDocs, setShowDocs] = useState(false);
 
+  // All-in-one Field Converter Modal state
+  const [converterOpen, setConverterOpen] = useState(false);
+  const [converterTab, setConverterTab] = useState<ConverterTab>('refuge');
+
+  const openConverter = (tab: ConverterTab) => {
+    setConverterTab(tab);
+    setConverterOpen(true);
+  };
+
   // Point Calculator state
   const [te, setTe] = useState(30.0);
   const [refuge, setRefuge] = useState(0.4);
@@ -1077,14 +1947,42 @@ export default function App() {
   const mutedText = isDark ? 'text-slate-400' : 'text-slate-500';
   const headingText = isDark ? 'text-white' : 'text-slate-900';
 
+  const helperChip = `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer ${
+    isDark
+      ? 'bg-slate-800/80 border-slate-700 text-cyan-300 hover:border-cyan-400'
+      : 'bg-teal-50 border-teal-200 text-teal-700 hover:bg-teal-100'
+  }`;
+
   return (
     <div
       className={`min-h-screen transition-colors duration-300 p-4 md:p-8 font-sans ${
         isDark ? 'bg-[#020617] text-slate-100' : 'bg-slate-50 text-slate-800'
       }`}
     >
+      {/* All-in-One Field Converter Modal */}
+      <FieldConverterModal
+        isOpen={converterOpen}
+        activeTab={converterTab}
+        onTabChange={setConverterTab}
+        onClose={() => setConverterOpen(false)}
+        isDark={isDark}
+        onApplyRefuge={(val) => {
+          setRefuge(val);
+          setNewRefuge(String(val));
+        }}
+        onApplyPredator={(val) => {
+          setPredator(val);
+          setNewPredator(String(val));
+        }}
+        onApplyVulnerability={(val) => setVulnerability(val)}
+        onApplyTe={(val) => {
+          setTe(val);
+          setNewTe(String(val));
+        }}
+      />
+
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header with Custom LOF Logo & Theme Toggle */}
+        {/* Header with Custom LOF Logo, Field Converters Button & Theme Toggle */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <LOFLogo />
@@ -1098,18 +1996,29 @@ export default function App() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsDark((prev) => !prev)}
-            className={`self-start sm:self-auto flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
-              isDark
-                ? 'bg-slate-900 border-slate-700 text-amber-300 hover:bg-slate-800'
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 shadow-sm'
-            }`}
-          >
-            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            {isDark ? 'Light Mode' : 'Dark Mode'}
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => openConverter('refuge')}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-sm transition cursor-pointer"
+            >
+              <Compass className="w-4 h-4" />
+              Field Converters
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsDark((prev) => !prev)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                isDark
+                  ? 'bg-slate-900 border-slate-700 text-amber-300 hover:bg-slate-800'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 shadow-sm'
+              }`}
+            >
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDark ? 'Light' : 'Dark'}
+            </button>
+          </div>
         </header>
 
         {/* Global Top Control Bar */}
@@ -1178,11 +2087,22 @@ export default function App() {
             </div>
 
             <div className="md:col-span-3 space-y-1.5">
-              <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                <span className={mutedText}>Functional Vulnerability (F)</span>
-                <span className={isDark ? 'text-purple-400' : 'text-purple-600'}>
-                  {vulnerability.toFixed(2)}
-                </span>
+              <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider gap-1">
+                <span className={mutedText}>Vulnerability (F)</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openConverter('vulnerability')}
+                    className={helperChip}
+                    title="Derive F from ReptTraits rubric"
+                  >
+                    <HelpCircle className="w-3 h-3" />
+                    Derive
+                  </button>
+                  <span className={isDark ? 'text-purple-400' : 'text-purple-600'}>
+                    {vulnerability.toFixed(2)}
+                  </span>
+                </div>
               </div>
               <input
                 type="range"
@@ -1369,25 +2289,38 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: Microhabitat Variables */}
               <div className={`lg:col-span-4 border rounded-2xl p-6 space-y-6 ${cardClass}`}>
-                <div className={`flex items-center gap-2 text-base font-bold ${headingText}`}>
-                  <Sliders className="w-4 h-4 text-teal-500" />
-                  Microhabitat Variables
+                <div className="flex items-center justify-between gap-2">
+                  <div className={`flex items-center gap-2 text-base font-bold ${headingText}`}>
+                    <Sliders className="w-4 h-4 text-teal-500" />
+                    Microhabitat Variables
+                  </div>
                 </div>
 
                 {/* Operative Temp */}
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center text-sm">
+                  <div className="flex justify-between items-center text-sm gap-1">
                     <span className="flex items-center gap-1.5 font-semibold">
                       <Thermometer className="w-4 h-4 text-orange-500" />
                       Operative Temp (Te)
                     </span>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
-                        isDark ? 'bg-orange-950/60 text-orange-400' : 'bg-orange-100 text-orange-700'
-                      }`}
-                    >
-                      {te.toFixed(1)}°C
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openConverter('te')}
+                        className={helperChip}
+                        title="Estimate Te from air temp + sun exposure"
+                      >
+                        <HelpCircle className="w-3 h-3" />
+                        Estimate
+                      </button>
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-bold text-xs ${
+                          isDark ? 'bg-orange-950/60 text-orange-400' : 'bg-orange-100 text-orange-700'
+                        }`}
+                      >
+                        {te.toFixed(1)}°C
+                      </span>
+                    </div>
                   </div>
                   <input
                     type="range"
@@ -1402,26 +2335,37 @@ export default function App() {
 
                 {/* Refuge Availability */}
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center text-sm">
+                  <div className="flex justify-between items-center text-sm gap-1">
                     <span className="flex items-center gap-1.5 font-semibold">
                       <Leaf className="w-4 h-4 text-emerald-500" />
                       Refuge Availability
                     </span>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
-                        isDark
-                          ? 'bg-emerald-950/60 text-emerald-400'
-                          : 'bg-emerald-100 text-emerald-700'
-                      }`}
-                    >
-                      {refuge.toFixed(2)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openConverter('refuge')}
+                        className={helperChip}
+                        title="Convert quadrat % cover or shelter distance"
+                      >
+                        <HelpCircle className="w-3 h-3" />
+                        Convert
+                      </button>
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-bold text-xs ${
+                          isDark
+                            ? 'bg-emerald-950/60 text-emerald-400'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {refuge.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                   <input
                     type="range"
                     min={0}
                     max={1}
-                    step={0.05}
+                    step={0.01}
                     value={refuge}
                     onChange={(e) => setRefuge(Number(e.target.value))}
                     className="w-full accent-emerald-500 cursor-pointer"
@@ -1433,24 +2377,35 @@ export default function App() {
 
                 {/* Predator Probability */}
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center text-sm">
+                  <div className="flex justify-between items-center text-sm gap-1">
                     <span className="flex items-center gap-1.5 font-semibold">
                       <ShieldAlert className="w-4 h-4 text-rose-500" />
                       Predator Probability
                     </span>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${
-                        isDark ? 'bg-rose-950/60 text-rose-400' : 'bg-rose-100 text-rose-700'
-                      }`}
-                    >
-                      {predator.toFixed(2)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openConverter('predator')}
+                        className={helperChip}
+                        title="Convert clay model assays, point counts, or occupancy"
+                      >
+                        <HelpCircle className="w-3 h-3" />
+                        Convert
+                      </button>
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-bold text-xs ${
+                          isDark ? 'bg-rose-950/60 text-rose-400' : 'bg-rose-100 text-rose-700'
+                        }`}
+                      >
+                        {predator.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                   <input
                     type="range"
                     min={0}
                     max={1}
-                    step={0.05}
+                    step={0.01}
                     value={predator}
                     onChange={(e) => setPredator(Number(e.target.value))}
                     className="w-full accent-rose-500 cursor-pointer"
@@ -1608,6 +2563,18 @@ export default function App() {
                   />
                   <button
                     type="button"
+                    onClick={() => openConverter('refuge')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                      isDark
+                        ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                    }`}
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    How to Measure Inputs?
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
                       isDark
@@ -1737,7 +2704,7 @@ export default function App() {
                   </label>
                   <input
                     type="number"
-                    step={0.05}
+                    step={0.01}
                     min={0}
                     max={1}
                     value={newRefuge}
@@ -1751,7 +2718,7 @@ export default function App() {
                   </label>
                   <input
                     type="number"
-                    step={0.05}
+                    step={0.01}
                     min={0}
                     max={1}
                     value={newPredator}
@@ -1948,7 +2915,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Collapsible Model Equations & Citation Footer */}
+        {/* Collapsible Model Equations, Field Parameterisation & Citation Footer */}
         <footer className={`border rounded-2xl overflow-hidden ${cardClass}`}>
           <button
             type="button"
@@ -1957,7 +2924,7 @@ export default function App() {
           >
             <span className={`flex items-center gap-2 ${headingText}`}>
               <BookOpen className="w-4 h-4 text-teal-500" />
-              Model Equations, Weights &amp; How to Cite
+              Model Equations, Field Parameterisation &amp; How to Cite
             </span>
             {showDocs ? (
               <ChevronUp className={`w-4 h-4 ${mutedText}`} />
@@ -1968,7 +2935,7 @@ export default function App() {
 
           {showDocs && (
             <div
-              className={`px-5 pb-5 pt-2 border-t grid grid-cols-1 md:grid-cols-2 gap-5 text-xs leading-relaxed ${
+              className={`px-5 pb-5 pt-3 border-t grid grid-cols-1 md:grid-cols-3 gap-5 text-xs leading-relaxed ${
                 isDark ? 'border-slate-800 text-slate-300' : 'border-slate-200 text-slate-600'
               }`}
             >
@@ -1998,12 +2965,26 @@ export default function App() {
 
               <div className="space-y-2">
                 <div className={`font-bold uppercase tracking-wider ${headingText}`}>
+                  Field Parameterisation ([0, 1] Inputs)
+                </div>
+                <p>
+                  <strong>Refuge (R):</strong> Quadrat cover proportion (Cover% / 100) or inverse distance to shelter (1 − d/d_max).
+                </p>
+                <p>
+                  <strong>Predator (P):</strong> Clay/3D model attack rate (Attacked / Deployed), scaled site counts (C_j / C_max), or occupancy probability (ψ).
+                </p>
+                <p className={mutedText}>
+                  Use the built-in <strong>Field Converters</strong> button above to compute any input directly from raw ecological data.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className={`font-bold uppercase tracking-wider ${headingText}`}>
                   Biophysical Integration &amp; Citation
                 </div>
                 <p>
-                  Spatial operative temperature (<em>T_e</em>) layers generated by mechanistic
-                  microclimate models such as <strong>NicheMapR</strong> (Kearney &amp; Porter 2017)
-                  can be imported directly via CSV in the <em>Field Data &amp; Mapping</em> tab.
+                  Spatial operative temperature (<em>T_e</em>) layers from{' '}
+                  <strong>NicheMapR</strong> (Kearney &amp; Porter 2017) or GPS field surveys can be imported via CSV in the <em>Field Data &amp; Mapping</em> tab.
                 </p>
                 <p className={`italic ${mutedText}`}>
                   Suggested Citation: Anbazhagan, A. (2026). Ectotherm Risk Landscape (LOF): A
