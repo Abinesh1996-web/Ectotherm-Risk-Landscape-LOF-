@@ -40,6 +40,8 @@ interface Observation {
   id: string;
   x: number;
   y: number;
+  rawX?: number;
+  rawY?: number;
   te: number;
   refuge: number;
   predator: number;
@@ -823,13 +825,13 @@ function IsometricLandscape({
 export default function App() {
   const [isDark, setIsDark] = useState(false);
 
-  // Default initialized to Profile A (Sceloporus cowlesi)
+  // Default initialized to Profile A (Sceloporus cowlesi) & validated Multiplicative model
   const [species, setSpecies] = useState('Sceloporus cowlesi');
   const [tPref, setTPref] = useState(34.9);
   const [ctMin, setCtMin] = useState(7.5);
   const [ctMax, setCtMax] = useState(42.1);
   const [vulnerability, setVulnerability] = useState(0.7);
-  const [model, setModel] = useState<ModelType>('additive');
+  const [model, setModel] = useState<ModelType>('multiplicative');
   const [beta, setBeta] = useState(3.0);
   const [activeTab, setActiveTab] = useState<'calculator' | 'mapping'>('calculator');
   const [showDocs, setShowDocs] = useState(false);
@@ -925,14 +927,21 @@ export default function App() {
           setImportMessage('CSV file appears empty or missing data rows.');
           return;
         }
-        const parsed: Observation[] = [];
+
+        const rawRows: Array<{
+          rawX: number;
+          rawY: number;
+          te: number;
+          refuge: number;
+          predator: number;
+        }> = [];
+
         for (let i = 1; i < lines.length; i++) {
           const cols = lines[i].split(',').map((c) => Number(c.trim()));
           if (cols.length >= 3 && !cols.slice(0, 3).some(isNaN)) {
-            parsed.push({
-              id: `${Date.now()}-${i}`,
-              x: Math.max(1, Math.min(10, Math.round(cols[0]))),
-              y: Math.max(1, Math.min(10, Math.round(cols[1]))),
+            rawRows.push({
+              rawX: cols[0],
+              rawY: cols[1],
               te: cols[2],
               refuge:
                 cols[3] !== undefined && !isNaN(cols[3])
@@ -945,9 +954,38 @@ export default function App() {
             });
           }
         }
-        if (parsed.length > 0) {
+
+        if (rawRows.length > 0) {
+          const xs = rawRows.map((r) => r.rawX);
+          const ys = rawRows.map((r) => r.rawY);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+
+          const needsScaling = minX < 1 || maxX > 10 || minY < 1 || maxY > 10;
+          const scaleToGrid = (val: number, min: number, max: number) =>
+            max === min ? 5 : Math.round(1 + ((val - min) / (max - min)) * 9);
+
+          const parsed: Observation[] = rawRows.map((r, i) => ({
+            id: `${Date.now()}-${i}`,
+            x: needsScaling ? scaleToGrid(r.rawX, minX, maxX) : Math.round(r.rawX),
+            y: needsScaling ? scaleToGrid(r.rawY, minY, maxY) : Math.round(r.rawY),
+            rawX: r.rawX,
+            rawY: r.rawY,
+            te: r.te,
+            refuge: r.refuge,
+            predator: r.predator,
+          }));
+
           setObservations(parsed);
-          setImportMessage(`Imported ${parsed.length} observations from ${file.name}.`);
+          setImportMessage(
+            `Imported ${parsed.length} observations from ${file.name}${
+              needsScaling
+                ? ' (coordinates auto-scaled to 10×10 display grid; raw values preserved on export).'
+                : '.'
+            }`
+          );
         } else {
           setImportMessage('No valid rows found. Expected columns: x, y, te, refuge, predator.');
         }
@@ -992,7 +1030,9 @@ export default function App() {
           model,
           beta
         ).toFixed(3);
-        return `${obs.x},${obs.y},${obs.te},${obs.refuge},${obs.predator},"${species}",${model},${beta},${tPref},${ctMin},${ctMax},${vulnerability},${score}`;
+        const outX = obs.rawX ?? obs.x;
+        const outY = obs.rawY ?? obs.y;
+        return `${outX},${outY},${obs.te},${obs.refuge},${obs.predator},"${species}",${model},${beta},${tPref},${ctMin},${ctMax},${vulnerability},${score}`;
       })
       .join('\n');
 
@@ -1574,7 +1614,7 @@ export default function App() {
                         ? 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-slate-700'
                         : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-200'
                     }`}
-                    title="CSV columns: x, y, te, refuge, predator"
+                    title="CSV columns: x, y, te, refuge, predator (arbitrary coordinates auto-scale to 10×10 grid)"
                   >
                     <Upload className="w-3.5 h-3.5" />
                     Import CSV (NicheMapR / Field)
@@ -1950,8 +1990,9 @@ export default function App() {
                 </p>
                 <p className={mutedText}>
                   Where <em>P</em> = predator probability, <em>R</em> = refuge scarcity (1 − refuge),{' '}
-                  <em>T</em> = normalized thermal mismatch, <em>F</em> = functional vulnerability, and{' '}
-                  <em>β</em> = thermal sensitivity constant (default 3.0).
+                  <em>T</em> = asymmetric normalized thermal mismatch (scaled to{' '}
+                  <em>T_pref − CT_min</em> or <em>CT_max − T_pref</em>), <em>F</em> = functional
+                  vulnerability, and <em>β</em> = thermal sensitivity constant (default 3.0).
                 </p>
               </div>
 
