@@ -2987,9 +2987,7 @@ export default function App() {
                   <strong>NicheMapR</strong> (Kearney &amp; Porter 2017) or GPS field surveys can be imported via CSV in the <em>Field Data &amp; Mapping</em> tab.
                 </p>
                 <p className={`italic ${mutedText}`}>
-                  Suggested Citation: Anbazhagan, A. (2026). Ectotherm Risk Landscape (LOF): A
-                  Trait-Integrated Spatial Framework for Mapping Multi-Dimensional Fear and
-                  Physiological Trade-Offs in Herpetofauna. Interactive Web Application.
+                  Suggested Citation:  (2026).
                 </p>
               </div>
             </div>
